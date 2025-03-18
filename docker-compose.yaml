@@ -1,0 +1,60 @@
+version: '3.8'
+
+services:
+  zookeeper:
+    image: zookeeper:latest
+    networks:
+      - my-network  # Добавляем в общую сеть
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: wurstmeister/kafka:latest
+    hostname: kafka
+    depends_on:
+      - zookeeper
+    healthcheck:
+      test: nc -vz localhost 9092
+      interval: 10s
+      timeout: 10s
+      retries: 3
+    ports:
+      - "127.0.0.1:9092:9092"
+    environment:
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_CREATE_TOPICS: "notifications:1:1"
+    networks:
+      - my-network  # Добавляем в общую сеть
+
+  producer:
+    build:
+      context: ./producer
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_BROKER: kafka:9092  # Пример правильного адреса брокера
+    depends_on:
+      kafka:
+        condition: service_healthy  # Ждем готовности Kafka
+    networks:
+      - my-network
+
+  consumer:
+    build:
+      context: ./consumer
+    environment:
+      KAFKA_BROKER: kafka:9092
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - my-network
+
+networks:
+  my-network:
+    driver: bridge
