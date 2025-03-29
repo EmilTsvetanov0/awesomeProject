@@ -43,11 +43,7 @@ func (s *Server) sendNotificationHandler(ctx *gin.Context) {
 		return
 	}
 
-	err = kafka.PushNotificationToQueue("notifications", reqBytes)
-	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
+	kafka.PushNotificationToQueue("notifications", reqBytes)
 
 	response := Response{
 		Status:  "ok",
