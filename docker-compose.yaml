@@ -1,59 +1,87 @@
 version: '3.8'
 
 services:
-  zookeeper:
-    image: zookeeper:latest
-    networks:
-      - my-network  # Добавляем в общую сеть
-    ports:
-      - "2181:2181"
-
   kafka:
-    image: wurstmeister/kafka:latest
-    hostname: kafka
-    depends_on:
-      - zookeeper
-    healthcheck:
-      test: nc -vz localhost 9092
-      interval: 10s
-      timeout: 10s
-      retries: 3
-    ports:
-      - "127.0.0.1:9092:9092"
-    environment:
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092
-      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://localhost:9092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_CREATE_TOPICS: "notifications:1:1"
+    image: apache/kafka:4.0.0
+    container_name: kafka
     networks:
-      - my-network  # Добавляем в общую сеть
+      - my-network
+    ports:
+      - "9092:9092"   # внешний доступ
+      - "9093:9093"   # внутренний порт для связи брокеров
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_NODE_ID: 1
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+
+      KAFKA_LISTENERS: CONTROLLER://kafka:9093,EXTERNAL://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: CONTROLLER://kafka:9093,EXTERNAL://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: EXTERNAL
+
+      KAFKA_LOG_DIRS: /tmp/kraft-data
+      KAFKA_METADATA_LOG_DIR: /tmp/kraft-meta
+
+      # Отключаем автосоздание топиков, чтобы быть уверенными, что топики создаются именно нашим скриптом
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_NUM_PARTITIONS: 3
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    volumes:
+      - ./kafka-init:/opt/kafka/init
+    healthcheck:
+      test: [ "CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  kafka-init:
+    image: apache/kafka:4.0.0
+    container_name: kafka-init
+    networks:
+      - my-network
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: [ "bash", "-c", "
+      /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --topic videos --partitions 3 --replication-factor 1 &&
+      /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --topic runners --partitions 3 --replication-factor 1 &&
+      /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --topic scenario --partitions 1 --replication-factor 1
+    " ]
+    restart: "no"
 
   producer:
     build:
       context: ./producer
+    container_name: producer
+    networks:
+      - my-network
     ports:
       - "8080:8080"
     environment:
-      KAFKA_BROKER: kafka:9092  # Пример правильного адреса брокера
+      KAFKA_BROKER: kafka:9092  # правильный адрес брокера
     depends_on:
       kafka:
-        condition: service_healthy  # Ждем готовности Kafka
-    networks:
-      - my-network
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
 
   consumer:
     build:
       context: ./consumer
+    container_name: consumer
+    networks:
+      - my-network
     environment:
       KAFKA_BROKER: kafka:9092
     depends_on:
       kafka:
         condition: service_healthy
-    networks:
-      - my-network
+      kafka-init:
+        condition: service_completed_successfully
 
 networks:
   my-network:

@@ -47,7 +47,7 @@ func (s *Server) sendNotificationHandler(ctx *gin.Context) {
 
 	response := Response{
 		Status:  "ok",
-		Message: fmt.Sprintf("Notification with title(%s) and timestamp(%f) was successfully sent", req.Title, req.Timestamp),
+		Message: fmt.Sprintf("Notification with title(%s) and timestamp(%d) was successfully sent", req.Title, req.Timestamp),
 	}
 
 	ctx.Header("Content-Type", "application/json")
