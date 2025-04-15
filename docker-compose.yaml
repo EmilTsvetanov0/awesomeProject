@@ -49,7 +49,8 @@ services:
     entrypoint: [ "bash", "-c", "
       /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --topic videos --partitions 3 --replication-factor 1 &&
       /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --topic runners --partitions 3 --replication-factor 1 &&
-      /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --topic scenario --partitions 1 --replication-factor 1
+      /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --topic scenario --partitions 1 --replication-factor 1 &&
+      /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --topic notifications --partitions 3 --replication-factor 1
     " ]
     restart: "no"
 
