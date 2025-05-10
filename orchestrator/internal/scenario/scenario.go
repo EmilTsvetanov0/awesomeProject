@@ -37,7 +37,7 @@ type Scenario struct {
 
 /* ---------- 3. Конструктор ---------- */
 
-func NewScenario(id string) *Scenario {
+func NewScenario(id string, enterState func(ctx context.Context, id string, dst string)) *Scenario {
 	s := &Scenario{ID: id}
 
 	s.FSM = fsm.NewFSM(
@@ -60,7 +60,9 @@ func NewScenario(id string) *Scenario {
 
 			// ---- для логов и сохранения состояния
 			"enter_state": func(ctx context.Context, e *fsm.Event) {
-				kafka.ChangeState(s.ID, e.Dst) //Ебать удобно
+				//kafka.ChangeState(s.ID, e.Dst) //Ебать удобно
+				// TODO: Добавить outbox сервис
+				enterState(ctx, s.ID, e.Dst) //Фиксируем изменение в постгресе
 				log.Printf("[FSM] %s : %s ➜ %s  (by %s)", s.ID, e.Src, e.Dst, e.Event)
 			},
 		},

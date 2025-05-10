@@ -44,7 +44,7 @@ func NewClient(ctx context.Context) (*pgxpool.Pool, error) {
 		return nil, err
 	}
 
-	log.Printf("Connected to PostgreSQL after %d attempts", maxAttempts)
+	log.Printf("Connected to PostgreSQL in less than %d attempts", maxAttempts)
 
 	return pool, nil
 }

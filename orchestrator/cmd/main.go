@@ -69,8 +69,6 @@ func main() {
 	//	panic(err)
 	//}
 
-	topic := "notifications"
-
 	ctx, cancel := context.WithCancel(context.Background())
 	wg := &sync.WaitGroup{}
 
@@ -80,29 +78,6 @@ func main() {
 		<-c
 		cancel()
 		wg.Wait()
-	}()
-
-	// Runners pool
-
-	runnerPool := runners.NewScenarioPool()
-
-	// Consumer
-	//go func() {
-	//	err := kafka.StartConsumerGroup(ctx, []string{topic}, kafka.VideoGroup)
-	//	if err != nil {
-	//		log.Printf("Kafka consumer exited with error: %s\n", err)
-	//	}
-	//}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		err := kafka.StartConsumer(ctx, topic, runnerPool)
-		if err != nil {
-			log.Printf("Kafka consumer exited with error: %s\n", err)
-		} else {
-			log.Println("Kafka consumer exited successfully")
-		}
 	}()
 
 	//Producer
@@ -147,11 +122,44 @@ func main() {
 
 	repository := postgresql.NewPgClient(newClient, log.Default())
 
+	// Runners pool
+
+	runnerPool := runners.NewScenarioPool(
+		func(ctx context.Context, id string, newStatus string) {
+			if err := repository.UpdateScenarioStatus(ctx, id, newStatus); err != nil {
+				log.Println("UpdateScenarioStatus error: ", err)
+			}
+		})
+
+	// Consumer
+	//go func() {
+	//	err := kafka.StartConsumerGroup(ctx, []string{topic}, kafka.VideoGroup)
+	//	if err != nil {
+	//		log.Printf("Kafka consumer exited with error: %s\n", err)
+	//	}
+	//}()
+
+	wg.Add(1)
+
+	rs := kafka.NewRunnerService(runnerPool, repository)
+
+	topic := "notifications"
+
+	go func() {
+		defer wg.Done()
+		err := rs.StartConsumer(ctx, topic)
+		if err != nil {
+			log.Printf("Kafka consumer exited with error: %s\n", err)
+		} else {
+			log.Println("Kafka consumer exited successfully")
+		}
+	}()
+
 	// Server init
 	client := server.New("8080", repository)
 
 	if err := client.Run(); err != nil {
 		return
 	}
-	
+
 }

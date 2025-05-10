@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"log"
 	"net/http"
+	"orchestrator/internal/domain"
 	"orchestrator/internal/postgresql"
 	"orchestrator/internal/runners"
 )
@@ -19,10 +20,6 @@ type Server struct {
 type Response struct {
 	Status  string `json:"status"`
 	Message string `json:"message"`
-}
-
-type Runner struct {
-	JobPath string `json:"job_path"`
 }
 
 func New(port string, client *postgresql.PgClient) *Server {
@@ -39,13 +36,13 @@ func (s *Server) newApi() *gin.Engine {
 }
 
 func (s *Server) pingRunnerHandler(ctx *gin.Context) {
-	var req Runner
+	var req domain.RunnerHb
 	if err := ctx.ShouldBindJSON(&req); err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "error": "bad request"})
 		return
 	}
 
-	if err := s.runnerPool.AcceptHeartbeat(req.JobPath); err != nil {
+	if err := s.runnerPool.AcceptHeartbeat(req.Id); err != nil {
 		log.Printf("Failed to accept heartbeat: %v", err)
 		if errors.Is(err, runners.ScenarioNotFoundErr) {
 			ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "error": "bad request"})

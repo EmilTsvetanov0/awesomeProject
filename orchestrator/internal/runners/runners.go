@@ -11,8 +11,9 @@ import (
 var ScenarioNotFoundErr = fmt.Errorf("scenario not found")
 
 type ScenarioPool struct {
-	runner map[string]*orchestrator.Scenario
-	mu     sync.Mutex
+	runner     map[string]*orchestrator.Scenario
+	enterState func(ctx context.Context, id string, dst string)
+	mu         sync.RWMutex
 }
 
 //var runnerPool ScenarioPool
@@ -23,10 +24,19 @@ type ScenarioPool struct {
 //	}
 //}
 
-func NewScenarioPool() *ScenarioPool {
+func NewScenarioPool(enterStateFunc func(ctx context.Context, id string, dst string)) *ScenarioPool {
 	return &ScenarioPool{
-		runner: make(map[string]*orchestrator.Scenario),
+		runner:     make(map[string]*orchestrator.Scenario),
+		enterState: enterStateFunc,
 	}
+}
+
+func (r *ScenarioPool) ScenarioExists(id string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	_, ok := r.runner[id]
+	return ok
 }
 
 func (r *ScenarioPool) RunScenario(ctx context.Context, id string) error {
@@ -35,11 +45,13 @@ func (r *ScenarioPool) RunScenario(ctx context.Context, id string) error {
 	defer r.mu.Unlock()
 
 	sc, ok := r.runner[id]
-	if ok && sc.FSM.Current() != orchestrator.StInactive {
-		return nil
+	if ok {
+		if sc.FSM.Current() != orchestrator.StInactive {
+			return nil
+		}
+	} else {
+		sc = orchestrator.NewScenario(id, r.enterState)
 	}
-
-	sc = orchestrator.NewScenario(id)
 	// ---------- запуск ----------
 	if err := sc.FSM.Event(ctx, "begin_startup"); err != nil {
 		log.Fatalf("startup error: %v", err)

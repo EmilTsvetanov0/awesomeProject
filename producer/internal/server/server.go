@@ -21,12 +21,8 @@ type Response struct {
 	Message string `json:"message"`
 }
 
-type Beat struct {
-	Id string `json:"id"`
-}
-
 type StartRunnerRequest struct {
-	JobPath string `json:"job_path"`
+	Id string `json:"id"`
 }
 
 func New(port string) *Server {
@@ -44,14 +40,6 @@ func (s *Server) newApi() *gin.Engine {
 	return g
 }
 
-func (s *Server) HeartBeatsHandler(ctx *gin.Context) {
-	var req Beat
-	if err := ctx.ShouldBindJSON(&req); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-}
-
 func (s *Server) startRunnerHandler(ctx *gin.Context) {
 	var req StartRunnerRequest
 	if err := ctx.ShouldBindJSON(&req); err != nil {
@@ -61,7 +49,7 @@ func (s *Server) startRunnerHandler(ctx *gin.Context) {
 
 	var runnerStatus string
 
-	if !s.runner.Start(req.JobPath) {
+	if !s.runner.Start(req.Id) {
 		runnerStatus = "is already running"
 	} else {
 		runnerStatus = "started successfully"

@@ -1,2 +1,5 @@
 brokers:
   - kafka:9092
+runner:
+  heartbeat_interval: 3
+  heartbeat_url: localhost:8080/ping

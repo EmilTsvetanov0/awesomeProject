@@ -9,13 +9,20 @@ import (
 	"log"
 	"orchestrator/internal/cconfig"
 	"orchestrator/internal/domain"
+	"orchestrator/internal/postgresql"
 	"os"
 	"time"
 )
 
-type RunnerManager interface {
+type ScenarioManager interface {
+	ScenarioExists(id string) bool
 	RunScenario(ctx context.Context, id string) error
 	StopScenario(ctx context.Context, id string) error
+}
+
+type RunnerService struct {
+	ScenarioManager
+	pg *postgresql.PgClient
 }
 
 func init() {
@@ -50,7 +57,14 @@ const VideoGroup = "videos"
 // Consumers
 //---------------------------------------
 
-func StartConsumer(ctx context.Context, topic string, r RunnerManager) error {
+func NewRunnerService(sc ScenarioManager, service *postgresql.PgClient) *RunnerService {
+	return &RunnerService{
+		ScenarioManager: sc,
+		pg:              service,
+	}
+}
+
+func (r *RunnerService) StartConsumer(ctx context.Context, topic string) error {
 
 	config := sarama.NewConfig()
 	config.Version = version
@@ -97,6 +111,14 @@ LOOP:
 
 			log.Printf("Consumer message: %+v with count: %d\n", runnerMsg, msgCnt)
 			if runnerMsg.Action == "start" {
+				if !r.ScenarioExists(runnerMsg.Id) {
+					log.Printf("Scenario %s does not exist. Creating...", runnerMsg.Id)
+					err = r.pg.InsertScenario(ctx, runnerMsg.Id)
+					if err != nil {
+						log.Printf("Error creating scenario: %v", err)
+					}
+				}
+				log.Printf("Starting scenario %s", runnerMsg.Id)
 				if err = r.RunScenario(ctx, runnerMsg.Id); err != nil {
 					log.Printf("Error running scenario: %v", err)
 				}
@@ -200,8 +222,16 @@ func StopRunner(id string) {
 	PushMessageToQueue(topic, sarama.StringEncoder(id), message)
 }
 
+// TODO: Delete ts
 func ChangeState(id string, state string) {
 	topic := "outbox"
 	message, _ := json.Marshal(domain.RunnerMsg{Id: id, Action: state})
 	PushMessageToQueue(topic, sarama.StringEncoder(id), message)
+}
+
+// TODO: Оказалось, мне даже не нужна эта функция. Можно удалить
+func SendToOutbox(evt domain.KafkaEvent) {
+	topic := "outbox"
+	message, _ := json.Marshal(evt)
+	PushMessageToQueue(topic, sarama.StringEncoder(""), message)
 }
