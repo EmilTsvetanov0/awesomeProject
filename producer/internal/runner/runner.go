@@ -1,9 +1,9 @@
 package runner
 
 import (
-	"awesomeProject/internal/kafka"
 	"encoding/json"
 	"log"
+	"producer/internal/kafka"
 	"strconv"
 	"sync"
 	"time"

@@ -1,11 +1,10 @@
 package main
 
 import (
-	"awesomeProject/internal/kafka"
-	"awesomeProject/internal/server"
 	"fmt"
 	"github.com/spf13/viper"
 	"log"
+	"producer/internal/kafka"
 )
 
 //TIP <p>To run your code, right-click the code and select <b>Run</b>.</p> <p>Alternatively, click
@@ -22,9 +21,9 @@ func main() {
 		panic(fmt.Errorf("ошибка чтения конфига: %w", err))
 	}
 
-	producers := viper.GetStringSlice("brokers")
+	brokers := viper.GetStringSlice("brokers")
 
-	if err := kafka.InitKafka(producers); err != nil {
+	if err := kafka.InitKafka(brokers); err != nil {
 		log.Fatal("Failed to init Kafka:", err)
 	}
 	defer func() {
@@ -35,9 +34,4 @@ func main() {
 
 	//TIP <p>Press <shortcut actionId="ShowIntentionActions"/> when your caret is at the underlined text
 	// to see how GoLand suggests fixing the warning.</p><p>Alternatively, if available, click the lightbulb to view possible fixes.</p>
-	client := server.New("8080")
-
-	if err := client.Run(); err != nil {
-		return
-	}
 }

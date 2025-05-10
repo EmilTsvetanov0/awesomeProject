@@ -1,14 +1,14 @@
 package server
 
 import (
-	"awesomeProject/internal/kafka"
-	"awesomeProject/internal/runner"
 	"encoding/json"
 	"fmt"
 	"github.com/gin-gonic/gin"
 	"io"
 	"log"
 	"net/http"
+	"producer/internal/kafka"
+	"producer/internal/runner"
 )
 
 type Server struct {
@@ -19,6 +19,10 @@ type Server struct {
 type Response struct {
 	Status  string `json:"status"`
 	Message string `json:"message"`
+}
+
+type Beat struct {
+	Id string `json:"id"`
 }
 
 type StartRunnerRequest struct {
@@ -38,6 +42,14 @@ func (s *Server) newApi() *gin.Engine {
 	g.POST("/start", s.startRunnerHandler)
 	g.POST("/stop", s.stopRunnerHandler)
 	return g
+}
+
+func (s *Server) HeartBeatsHandler(ctx *gin.Context) {
+	var req Beat
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 }
 
 func (s *Server) startRunnerHandler(ctx *gin.Context) {
