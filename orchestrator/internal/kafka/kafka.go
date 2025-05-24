@@ -31,6 +31,7 @@ func init() {
 	Brokers = viper.GetStringSlice("kafka.brokers")
 	oldest = viper.GetBool("kafka.oldest")
 	verbose = viper.GetBool("kafka.verbose")
+	runner_partitions = viper.GetInt("kafka.runner_partitions")
 	if verbose {
 		sarama.Logger = log.New(os.Stdout, "[sarama] ", log.LstdFlags)
 	}
@@ -43,10 +44,11 @@ func init() {
 }
 
 var (
-	Brokers = []string{""}
-	version = sarama.MaxVersion
-	oldest  = false // Это чтобы перечитывать партиции каждый раз с начала
-	verbose = true
+	Brokers           = []string{""}
+	version           = sarama.MaxVersion
+	oldest            = false // Это чтобы перечитывать партиции каждый раз с начала
+	verbose           = true
+	runner_partitions = 0
 )
 
 var consumer sarama.Consumer
@@ -192,7 +194,7 @@ LOOP:
 	return err
 }
 
-func PushMessageToQueue(topic string, key sarama.Encoder, message []byte) {
+func PushMessageToQueueKey(topic string, key sarama.Encoder, message []byte) {
 
 	if kafkaProducer == nil {
 		log.Print("[orchestrator] kafka producer is not initialized")
@@ -208,25 +210,44 @@ func PushMessageToQueue(topic string, key sarama.Encoder, message []byte) {
 	kafkaProducer.Input() <- msg
 }
 
+func PushMessageToQueue(msg *sarama.ProducerMessage) {
+
+	if kafkaProducer == nil {
+		log.Print("[orchestrator] kafka producer is not initialized")
+		return
+	}
+
+	kafkaProducer.Input() <- msg
+}
+
 // Runners
 
 func StartRunner(id string) {
 	topic := "runners"
 	message, _ := json.Marshal(domain.RunnerMsg{Id: id, Action: "start"})
-	PushMessageToQueue(topic, sarama.StringEncoder(id), message)
+	PushMessageToQueueKey(topic, sarama.StringEncoder(id), message)
 }
 
 func StopRunner(id string) {
 	topic := "runners"
 	message, _ := json.Marshal(domain.RunnerMsg{Id: id, Action: "stop"})
-	PushMessageToQueue(topic, sarama.StringEncoder(id), message)
+
+	// В связи с непредсказуемой ребалансировкой, единственный рабочий вариант - отправлять уведы об остановке всем консьюмерам сразу
+	for i := 0; i < runner_partitions; i++ {
+		msg := &sarama.ProducerMessage{
+			Topic:     topic,
+			Value:     sarama.ByteEncoder(message),
+			Partition: 0,
+		}
+		PushMessageToQueue(msg)
+	}
 }
 
 // TODO: Delete ts
 func ChangeState(id string, state string) {
 	topic := "outbox"
 	message, _ := json.Marshal(domain.RunnerMsg{Id: id, Action: state})
-	PushMessageToQueue(topic, sarama.StringEncoder(id), message)
+	PushMessageToQueueKey(topic, sarama.StringEncoder(id), message)
 }
 
 // TODO: Оказалось, мне даже не нужна эта функция. Можно удалить

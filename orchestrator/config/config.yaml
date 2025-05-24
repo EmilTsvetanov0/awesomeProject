@@ -5,3 +5,4 @@ kafka:
   assignor: roundrobin
   oldest: false
   verbose: true
+  runner_partitions: 3
