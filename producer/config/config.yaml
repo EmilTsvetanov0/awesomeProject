@@ -1,5 +1,10 @@
-brokers:
-  - kafka:9092
+kafka:
+  brokers:
+    - kafka:9092
+  version: 4.0.0
+  assignor: roundrobin
+  oldest: false
+  verbose: true
 runner:
   heartbeat_interval: 3
   heartbeat_url: localhost:8080/ping

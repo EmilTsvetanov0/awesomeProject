@@ -1,11 +1,22 @@
 package kafka
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/IBM/sarama"
+	"github.com/spf13/viper"
 	"log"
+	"os"
+	"producer/internal/cconfig"
+	"producer/internal/domain"
 	"time"
 )
+
+type RunnerPool interface {
+	Start(ctx context.Context, Id string)
+	Stop(id string)
+}
 
 var kafkaProducer sarama.AsyncProducer
 
@@ -33,6 +44,105 @@ func InitKafka(brokers []string) error {
 	return err
 }
 
+func init() {
+	cconfig.InitConfig()
+
+	Brokers = viper.GetStringSlice("kafka.brokers")
+	oldest = viper.GetBool("kafka.oldest")
+	verbose = viper.GetBool("kafka.verbose")
+	if verbose {
+		sarama.Logger = log.New(os.Stdout, "[sarama] ", log.LstdFlags)
+	}
+	var err error
+	version, err = sarama.ParseKafkaVersion(viper.GetString("kafka.version"))
+	if err != nil {
+		panic(err)
+	}
+
+}
+
+var (
+	Brokers = []string{""}
+	version = sarama.MaxVersion
+	oldest  = false // Это чтобы перечитывать партиции каждый раз с начала
+	verbose = true
+)
+
+// Consumer
+
+type runnerGroupHandler struct {
+	runnerPool RunnerPool
+}
+
+var availablePaths = []string{"first", "second", "krol"}
+
+func (h *runnerGroupHandler) Setup(_ sarama.ConsumerGroupSession) error   { return nil }
+func (h *runnerGroupHandler) Cleanup(_ sarama.ConsumerGroupSession) error { return nil }
+
+func (h *runnerGroupHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
+	for msg := range claim.Messages() {
+		var runnerMsg domain.RunnerMsg
+		if err := json.Unmarshal(msg.Value, &runnerMsg); err != nil {
+			log.Printf("Error unmarshalling message: %v", err)
+			continue
+		}
+
+		log.Printf("Message: %+v", runnerMsg)
+		switch runnerMsg.Action {
+		case "start":
+			h.runnerPool.Start(context.Background(), runnerMsg.Id)
+		case "stop":
+			h.runnerPool.Stop(runnerMsg.Id)
+		}
+
+		// отмечаем сообщение как обработанное
+		sess.MarkMessage(msg, "")
+	}
+	return nil
+}
+
+// Новый метод запуска ConsumerGroup
+func StartConsumerGroup(ctx context.Context, topic, groupID string, rp RunnerPool) error {
+	config := sarama.NewConfig()
+	config.Version = version
+	if oldest {
+		config.Consumer.Offsets.Initial = sarama.OffsetOldest
+	} else {
+		config.Consumer.Offsets.Initial = sarama.OffsetNewest
+	}
+	// стратегия разбаланса
+	config.Consumer.Group.Rebalance.Strategy = sarama.BalanceStrategyRoundRobin
+
+	// создаём группу
+	group, err := sarama.NewConsumerGroup(Brokers, groupID, config)
+	if err != nil {
+		return fmt.Errorf("[producer] error creating consumer group: %w", err)
+	}
+	defer group.Close()
+
+	handler := &runnerGroupHandler{runnerPool: rp}
+
+	// логируем ошибки группы
+	go func() {
+		for err := range group.Errors() {
+			log.Printf("[producer] Consumer group error: %v", err)
+		}
+	}()
+
+	// запускаем цикл Consume
+	for {
+		if err := group.Consume(ctx, []string{topic}, handler); err != nil {
+			log.Printf("[producer] Error during Consume: %v", err)
+			time.Sleep(time.Second)
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+	}
+}
+
+// Producer
+
 func handleAsyncProducerEvents() {
 	for {
 		select {
@@ -45,7 +155,7 @@ func handleAsyncProducerEvents() {
 			if !ok {
 				return
 			}
-			log.Println(fmt.Sprintf("Topic: %s, partition: %d, Offset: %d, Timestamp: %s", msg.Topic, msg.Partition, msg.Offset, msg.Timestamp.Format(time.RFC3339)))
+			log.Println(fmt.Sprintf("[producer] Topic: %s, partition: %d, Offset: %d, Timestamp: %s", msg.Topic, msg.Partition, msg.Offset, msg.Timestamp.Format(time.RFC3339)))
 		}
 	}
 }
@@ -72,7 +182,7 @@ type Notification struct {
 func PushNotificationToQueue(topic string, message []byte) {
 
 	if kafkaProducer == nil {
-		log.Print("kafka producer is not initialized")
+		log.Print("[producer] kafka producer is not initialized")
 		return
 	}
 

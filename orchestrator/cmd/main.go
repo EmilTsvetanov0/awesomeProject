@@ -77,7 +77,6 @@ func main() {
 		signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
 		<-c
 		cancel()
-		wg.Wait()
 	}()
 
 	//Producer
@@ -87,9 +86,9 @@ func main() {
 		defer wg.Done()
 		err := kafka.StartProducer(ctx)
 		if err != nil {
-			log.Printf("Kafka producer exited with error: %s\n", err)
+			log.Printf("[orchestrator] Kafka producer exited with error: %s\n", err)
 		} else {
-			log.Println("Kafka producer exited successfully")
+			log.Println("[orchestrator] Kafka producer exited successfully")
 		}
 	}()
 
@@ -127,9 +126,10 @@ func main() {
 	runnerPool := runners.NewScenarioPool(
 		func(ctx context.Context, id string, newStatus string) {
 			if err := repository.UpdateScenarioStatus(ctx, id, newStatus); err != nil {
-				log.Println("UpdateScenarioStatus error: ", err)
+				log.Println("[orchestrator] UpdateScenarioStatus error: ", err)
 			}
-		})
+		},
+	)
 
 	// Consumer
 	//go func() {
@@ -149,9 +149,9 @@ func main() {
 		defer wg.Done()
 		err := rs.StartConsumer(ctx, topic)
 		if err != nil {
-			log.Printf("Kafka consumer exited with error: %s\n", err)
+			log.Printf("[orchestrator] Kafka consumer exited with error: %s\n", err)
 		} else {
-			log.Println("Kafka consumer exited successfully")
+			log.Println("[orchestrator] Kafka consumer exited successfully")
 		}
 	}()
 
@@ -161,5 +161,7 @@ func main() {
 	if err := client.Run(); err != nil {
 		return
 	}
+
+	wg.Wait()
 
 }

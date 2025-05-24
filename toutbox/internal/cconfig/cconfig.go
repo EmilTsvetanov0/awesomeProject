@@ -15,7 +15,7 @@ func InitConfig() {
 		viper.AddConfigPath("./config")
 
 		if err := viper.ReadInConfig(); err != nil {
-			panic(fmt.Errorf("[producer] ошибка чтения конфига: %w", err))
+			panic(fmt.Errorf("[outbox] ошибка чтения конфига: %w", err))
 		}
 	})
 }

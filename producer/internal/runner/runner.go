@@ -25,19 +25,21 @@ func init() {
 }
 
 type Runner struct {
-	exit   chan struct{}
-	active bool
-	mutex  sync.Mutex
+	exit    chan struct{}
+	active  bool
+	mutex   sync.Mutex
+	jobName string
 }
 
-func NewRunner() *Runner {
+func NewRunner(name string) *Runner {
 	return &Runner{
-		exit:   make(chan struct{}),
-		active: false,
+		exit:    make(chan struct{}),
+		active:  false,
+		jobName: name,
 	}
 }
 
-func (r *Runner) Start(ctx context.Context, jobName string) bool {
+func (r *Runner) Start(ctx context.Context) bool {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 	if r.active {
@@ -68,7 +70,7 @@ func (r *Runner) Start(ctx context.Context, jobName string) bool {
 				resp.Body.Close()
 			}
 		}
-	}(jobName)
+	}(r.jobName)
 
 	// Здесь отправляем кадры (пока симуляция)
 	go func(job string) {
@@ -94,7 +96,7 @@ func (r *Runner) Start(ctx context.Context, jobName string) bool {
 				kafka.PushNotificationToQueue("notifications", msg)
 			}
 		}
-	}(jobName)
+	}(r.jobName)
 	return true
 }
 
@@ -107,4 +109,48 @@ func (r *Runner) Stop() bool {
 	r.exit <- struct{}{}
 	r.active = false
 	return true
+}
+
+// Runner pool
+
+type Pool struct {
+	mu   sync.Mutex
+	pool map[string]*Runner
+}
+
+func NewPool() *Pool {
+	return &Pool{}
+}
+
+func (p *Pool) Start(ctx context.Context, id string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	r, ok := p.pool[id]
+	if !ok {
+		r = NewRunner(id)
+	}
+
+	if !r.Start(ctx) {
+		log.Println("[producer] Runner " + id + " already started")
+	} else {
+		log.Println("[producer] Runner " + id + " started")
+	}
+}
+
+func (p *Pool) Stop(id string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	r, ok := p.pool[id]
+	if !ok {
+		log.Println("[producer] Runner " + id + " doesn't exist")
+		return
+	}
+
+	if !r.Stop() {
+		log.Println("[producer] Runner " + id + " already stopped")
+	} else {
+		log.Println("[producer] Runner " + id + " stopped")
+	}
 }

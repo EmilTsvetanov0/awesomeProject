@@ -43,7 +43,7 @@ func NewScenario(id string, enterState func(ctx context.Context, id string, dst 
 	s.FSM = fsm.NewFSM(
 		StInitStartup,
 		fsm.Events{
-			{Name: "begin_startup", Src: []string{StInitStartup}, Dst: StInStartupProcessing},
+			{Name: "begin_startup", Src: []string{StInitStartup, StInactive}, Dst: StInStartupProcessing},
 			{Name: "complete_startup", Src: []string{StInStartupProcessing}, Dst: StActive},
 			{Name: "begin_shutdown", Src: []string{StActive}, Dst: StInitShutdown},
 			{Name: "process_shutdown", Src: []string{StInitShutdown}, Dst: StInShutdownProcessing},
@@ -60,10 +60,9 @@ func NewScenario(id string, enterState func(ctx context.Context, id string, dst 
 
 			// ---- для логов и сохранения состояния
 			"enter_state": func(ctx context.Context, e *fsm.Event) {
-				//kafka.ChangeState(s.ID, e.Dst) //Ебать удобно
-				// TODO: Добавить outbox сервис
+				//kafka.ChangeState(s.ID, e.Dst)
 				enterState(ctx, s.ID, e.Dst) //Фиксируем изменение в постгресе
-				log.Printf("[FSM] %s : %s ➜ %s  (by %s)", s.ID, e.Src, e.Dst, e.Event)
+				log.Printf("[orchestrator] [FSM] %s : %s ➜ %s  (by %s)", s.ID, e.Src, e.Dst, e.Event)
 			},
 		},
 	)
@@ -73,7 +72,7 @@ func NewScenario(id string, enterState func(ctx context.Context, id string, dst 
 /* ---------- 4. Колбеки FSM ---------- */
 
 func (s *Scenario) cbEnterStartupProcessing(ctx context.Context, e *fsm.Event) {
-	log.Printf("[%s] sending START to runner…", s.ID)
+	log.Printf("[orchestrator] [%s] sending START to runner…", s.ID)
 
 	kafka.StartRunner(s.ID)
 	// → _sendStartCommand()_  (сокращено)
@@ -85,7 +84,7 @@ func (s *Scenario) cbEnterStartupProcessing(ctx context.Context, e *fsm.Event) {
 	// сразу (асинхронно) просим FSM попробовать перейти в Active
 	go func() {
 		if err := s.FSM.Event(ctx, "complete_startup"); err != nil {
-			log.Printf("[%s] complete_startup canceled: %v", s.ID, err)
+			log.Printf("[orchestrator] [%s] complete_startup canceled: %v", s.ID, err)
 		}
 	}()
 }
@@ -97,7 +96,7 @@ func (s *Scenario) cbBeforeCompleteStartup(ctx context.Context, e *fsm.Event) {
 }
 
 func (s *Scenario) cbEnterInitShutdown(ctx context.Context, e *fsm.Event) {
-	log.Printf("[%s] sending STOP to runner…", s.ID)
+	log.Printf("[orchestrator] [%s] sending STOP to runner…", s.ID)
 	kafka.StopRunner(s.ID)
 	// → _sendStopCommand()_
 	// останавливаем watchdog
@@ -133,7 +132,7 @@ func (s *Scenario) waitForHeartbeat(maxRetries int) bool {
 		if ok {
 			return true
 		}
-		log.Printf("[%s] no heartbeat, retry %d…", s.ID, i+1)
+		log.Printf("[orchestrator] [%s] no heartbeat, retry %d…", s.ID, i+1)
 		time.Sleep(HeartbeatTTL)
 	}
 	return false
@@ -161,7 +160,7 @@ func (s *Scenario) heartbeatWatchdog(ctx context.Context) {
 			expired := time.Since(s.lastHB) > HeartbeatTTL
 			s.hbMu.Unlock()
 			if expired && s.FSM.Is(StActive) {
-				log.Printf("[%s] heartbeat lost ➜ restart runner", s.ID)
+				log.Printf("[orchestrator] [%s] heartbeat lost ➜ restart runner", s.ID)
 				_ = s.FSM.Event(ctx, "begin_shutdown") // инициируем graceful‑stop → запуск заново можете добавить
 			}
 		}

@@ -78,15 +78,15 @@ func (r *RunnerService) StartConsumer(ctx context.Context, topic string) error {
 
 	consumer, err = sarama.NewConsumer(Brokers, config)
 	if err != nil {
-		log.Panicf("Error creating consumer client: %v", err)
+		log.Panicf("[orchestrator] Error creating consumer client: %v", err)
 	}
 
 	partitionConsumer, err := consumer.ConsumePartition(topic, 0, sarama.OffsetNewest)
 	if err != nil {
-		log.Panicf("Error from consumer: %v", err)
+		log.Panicf("[orchestrator] Error from consumer: %v", err)
 	}
 
-	log.Println("Sarama consumer up and running!...")
+	log.Println("[orchestrator] Sarama consumer up and running!...")
 
 	msgCnt := 0
 
@@ -94,10 +94,10 @@ LOOP:
 	for {
 		select {
 		case <-ctx.Done():
-			log.Printf("terminating: context cancelled\n")
+			log.Printf("[orchestrator] terminating: context cancelled\n")
 			break LOOP
 		case err = <-partitionConsumer.Errors():
-			log.Printf("Consumer error: %s\n", err)
+			log.Printf("[orchestrator] Consumer error: %s\n", err)
 		case msg := <-partitionConsumer.Messages():
 			msgCnt++
 
@@ -105,26 +105,26 @@ LOOP:
 
 			err = json.Unmarshal(msg.Value, &runnerMsg)
 			if err != nil {
-				log.Printf("Error unmarshalling message: %v", err)
+				log.Printf("[orchestrator] Error unmarshalling message: %v", err)
 				continue
 			}
 
-			log.Printf("Consumer message: %+v with count: %d\n", runnerMsg, msgCnt)
+			log.Printf("[orchestrator] Consumer message: %+v with count: %d\n", runnerMsg, msgCnt)
 			if runnerMsg.Action == "start" {
 				if !r.ScenarioExists(runnerMsg.Id) {
-					log.Printf("Scenario %s does not exist. Creating...", runnerMsg.Id)
+					log.Printf("[orchestrator] Scenario %s does not exist. Creating...", runnerMsg.Id)
 					err = r.pg.InsertScenario(ctx, runnerMsg.Id)
 					if err != nil {
-						log.Printf("Error creating scenario: %v", err)
+						log.Printf("[orchestrator] Error creating scenario: %v", err)
 					}
 				}
 				log.Printf("Starting scenario %s", runnerMsg.Id)
 				if err = r.RunScenario(ctx, runnerMsg.Id); err != nil {
-					log.Printf("Error running scenario: %v", err)
+					log.Printf("[orchestrator] Error running scenario: %v", err)
 				}
 			} else if runnerMsg.Action == "stop" {
 				if err = r.StopScenario(ctx, runnerMsg.Id); err != nil {
-					log.Printf("Error running scenario: %v", err)
+					log.Printf("[orchestrator] Error running scenario: %v", err)
 				}
 			}
 
@@ -132,7 +132,7 @@ LOOP:
 	}
 
 	if err = partitionConsumer.Close(); err != nil {
-		log.Printf("Error closing consumer: %v", err)
+		log.Printf("[orchestrator] Error closing consumer: %v", err)
 		panic(err)
 	}
 
@@ -161,7 +161,7 @@ func StartProducer(ctx context.Context) error {
 	kafkaProducer, err = sarama.NewAsyncProducer(Brokers, config)
 
 	if err != nil {
-		log.Fatal("Failed to start Kafka producer:", err)
+		log.Fatal("[orchestrator] Failed to start Kafka producer:", err)
 		return err
 	}
 
@@ -169,7 +169,7 @@ LOOP:
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("terminating: context cancelled")
+			log.Println("[orchestrator] terminating: context cancelled")
 			break LOOP
 		case msg, ok := <-kafkaProducer.Errors():
 			if !ok {
@@ -180,13 +180,13 @@ LOOP:
 			if !ok {
 				return fmt.Errorf("error reading from producer success channel: %v", err)
 			}
-			log.Println(fmt.Sprintf("Topic: %s, partition: %d, Offset: %d, Timestamp: %s", msg.Topic, msg.Partition, msg.Offset, msg.Timestamp.Format(time.RFC3339)))
+			log.Println(fmt.Sprintf("[orchestrator] Topic: %s, partition: %d, Offset: %d, Timestamp: %s", msg.Topic, msg.Partition, msg.Offset, msg.Timestamp.Format(time.RFC3339)))
 		}
 	}
 
 	err = kafkaProducer.Close()
 	if err != nil {
-		log.Printf("error closing producer: %v", err)
+		log.Printf("[orchestrator] error closing producer: %v", err)
 	}
 
 	return err
@@ -195,7 +195,7 @@ LOOP:
 func PushMessageToQueue(topic string, key sarama.Encoder, message []byte) {
 
 	if kafkaProducer == nil {
-		log.Print("kafka producer is not initialized")
+		log.Print("[orchestrator] kafka producer is not initialized")
 		return
 	}
 

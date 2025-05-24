@@ -8,8 +8,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/viper"
 	"log"
-	"orchestrator/internal/utils"
 	"time"
+	"toutbox/internal/utils"
 )
 
 type Client interface {
@@ -40,11 +40,11 @@ func NewClient(ctx context.Context) (*pgxpool.Pool, error) {
 	}, maxAttempts, 5*time.Second)
 
 	if err != nil {
-		log.Fatalf("[orchestrator] Failed to connect to PostgreSQL after %d attempts: %v", maxAttempts, err)
+		log.Fatalf("[outbox] Failed to connect to PostgreSQL after %d attempts: %v", maxAttempts, err)
 		return nil, err
 	}
 
-	log.Printf("[orchestrator] Connected to PostgreSQL in less than %d attempts", maxAttempts)
+	log.Printf("[outbox] Connected to PostgreSQL in less than %d attempts", maxAttempts)
 
 	return pool, nil
 }

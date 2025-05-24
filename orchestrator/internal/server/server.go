@@ -43,7 +43,7 @@ func (s *Server) pingRunnerHandler(ctx *gin.Context) {
 	}
 
 	if err := s.runnerPool.AcceptHeartbeat(req.Id); err != nil {
-		log.Printf("Failed to accept heartbeat: %v", err)
+		log.Printf("[orchestrator] Failed to accept heartbeat: %v", err)
 		if errors.Is(err, runners.ScenarioNotFoundErr) {
 			ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "error": "bad request"})
 		} else {
@@ -58,7 +58,7 @@ func (s *Server) Run() error {
 	eng := s.newApi()
 	err := eng.Run(":" + s.port)
 	if err != nil {
-		fmt.Println("server run err:", err)
+		fmt.Println("[orchestrator] server run err:", err)
 		return err
 	}
 	return nil

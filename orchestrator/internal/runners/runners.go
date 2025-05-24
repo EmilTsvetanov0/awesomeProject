@@ -54,7 +54,7 @@ func (r *ScenarioPool) RunScenario(ctx context.Context, id string) error {
 	}
 	// ---------- запуск ----------
 	if err := sc.FSM.Event(ctx, "begin_startup"); err != nil {
-		log.Fatalf("startup error: %v", err)
+		log.Fatalf("[orchestrator] runners[RunScenario] startup error: %v", err)
 	}
 
 	return nil
@@ -71,7 +71,7 @@ func (r *ScenarioPool) StopScenario(ctx context.Context, id string) error {
 	}
 	// ---------- запуск ----------
 	if err := sc.FSM.Event(ctx, "begin_shutdown"); err != nil {
-		log.Fatalf("shutdown error: %v", err)
+		log.Fatalf("[orchestrator] runners[StopScenario] shutdown error: %v", err)
 	}
 
 	return nil
