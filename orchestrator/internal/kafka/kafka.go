@@ -150,6 +150,7 @@ var kafkaProducer sarama.AsyncProducer
 func StartProducer(ctx context.Context) error {
 
 	config := sarama.NewConfig()
+	config.Producer.Partitioner = sarama.NewManualPartitioner
 	config.Producer.RequiredAcks = sarama.WaitForLocal
 	config.Producer.Return.Successes = true
 	config.Producer.Return.Errors = true
