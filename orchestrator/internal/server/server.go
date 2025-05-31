@@ -43,8 +43,6 @@ func (s *Server) pingRunnerHandler(ctx *gin.Context) {
 		return
 	}
 
-	// TODO: Либо убрать runnerPool, либо создавать каждый раз этот раннер, потому что он не находит его, чтобы принять хартбит
-	// NOTE: Может быть уже не проблема
 	if s.runnerPool == nil {
 		log.Println("[orchestrator] runnerPool is nil")
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "runnerPool is nil"})

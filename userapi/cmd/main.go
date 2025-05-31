@@ -27,7 +27,6 @@ func main() {
 	}()
 
 	// PostgreSQL initialization
-	// TODO: Изменить креды в конфиге, чтобы не подключаться к базе оркестратора
 	newClient, err := pclient.NewClient(context.Background())
 
 	if err != nil {

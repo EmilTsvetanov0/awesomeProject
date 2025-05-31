@@ -74,7 +74,6 @@ func (r *Runner) Start(ctx context.Context) bool {
 				log.Printf("[producer] [Runner.Start] Sending heartbeat for %s", r.jobName)
 				payload := []byte(`{"id":"` + job + `","timestamp":` + strconv.FormatInt(time.Now().Unix(), 10) + `}`)
 
-				// TODO: Надо добавить нормальную проверку того, получен ли оркестратором heartbeat, потому что может прийти просто код 400 к примеру
 				resp, err := http.Post(heartbeatURL, "application/json", bytes.NewBuffer(payload))
 				log.Printf("[producer] [Runner.Start] Heartbeat response code: %d", resp.StatusCode)
 				if err != nil || resp.StatusCode != http.StatusOK {
@@ -87,17 +86,25 @@ func (r *Runner) Start(ctx context.Context) bool {
 					if currentTries >= hbTries {
 						log.Println("Heartbeat tries limit reached, cancelling runner")
 						r.Stop()
-						resp.Body.Close()
+						err := resp.Body.Close()
+						if err != nil {
+							log.Printf("[producer] [Runner.Start] Close body response error: %s", err)
+							return
+						}
 						return
 					}
 				}
-				resp.Body.Close()
+				err = resp.Body.Close()
+				if err != nil {
+					log.Printf("[producer] [Runner.Start] Close body response error: %s", err)
+					return
+				}
 			}
 		}
 	}(r.jobName)
 
 	// Здесь отправляем кадры (пока симуляция)
-	// TODO: Подключить обработку кадров из видоса и поменять топик на videos
+	// TODO: Подключить обработку кадров из видоса
 	go func(job string) {
 		ticker := time.NewTicker(3 * time.Second)
 		i := 0

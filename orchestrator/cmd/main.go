@@ -39,7 +39,6 @@ func main() {
 		}
 	}()
 
-	// TODO: Instead of this need to do transactional outbox
 	// PostgreSQL initialization
 	newClient, err := pclient.NewClient(context.Background())
 
