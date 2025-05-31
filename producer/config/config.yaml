@@ -7,4 +7,5 @@ kafka:
   verbose: true
 runner:
   heartbeat_interval: 3
-  heartbeat_url: localhost:8080/ping
+  heartbeat_url: orchestrator:8080/ping
+  heartbeat_tries: 5

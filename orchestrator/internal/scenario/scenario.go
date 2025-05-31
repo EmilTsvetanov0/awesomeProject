@@ -2,7 +2,6 @@ package orchestrator
 
 import (
 	"context"
-	"fmt"
 	"github.com/looplab/fsm"
 	"log"
 	"orchestrator/internal/kafka"
@@ -39,13 +38,14 @@ type Scenario struct {
 
 func NewScenario(id string, enterState func(ctx context.Context, id string, dst string)) *Scenario {
 	s := &Scenario{ID: id}
+	s.Reset()
 
 	s.FSM = fsm.NewFSM(
 		StInitStartup,
 		fsm.Events{
 			{Name: "begin_startup", Src: []string{StInitStartup, StInactive}, Dst: StInStartupProcessing},
 			{Name: "complete_startup", Src: []string{StInStartupProcessing}, Dst: StActive},
-			{Name: "begin_shutdown", Src: []string{StActive}, Dst: StInitShutdown},
+			{Name: "begin_shutdown", Src: []string{StActive, StInStartupProcessing}, Dst: StInitShutdown},
 			{Name: "process_shutdown", Src: []string{StInitShutdown}, Dst: StInShutdownProcessing},
 			{Name: "complete_shutdown", Src: []string{StInShutdownProcessing}, Dst: StInactive},
 		},
@@ -55,8 +55,9 @@ func NewScenario(id string, enterState func(ctx context.Context, id string, dst 
 			"before_complete_startup":     s.cbBeforeCompleteStartup,
 
 			// ---- остановка ----
-			"enter_init_shutdown":      s.cbEnterInitShutdown,
-			"before_complete_shutdown": s.cbBeforeCompleteShutdown,
+			"enter_init_shutdown":          s.cbEnterInitShutdown,
+			"enter_in_shutdown_processing": s.cbEnterInShutdownProcessing,
+			"enter_inactive":               s.cbEnterInactive,
 
 			// ---- для логов и сохранения состояния
 			"enter_state": func(ctx context.Context, e *fsm.Event) {
@@ -72,45 +73,75 @@ func NewScenario(id string, enterState func(ctx context.Context, id string, dst 
 /* ---------- 4. Колбеки FSM ---------- */
 
 func (s *Scenario) cbEnterStartupProcessing(ctx context.Context, e *fsm.Event) {
-	log.Printf("[orchestrator] [%s] sending START to runner…", s.ID)
+	log.Printf("[orchestrator] [%s] entering startup processing, current state: %s",
+		s.ID, s.FSM.Current())
+
+	s.stopWatchdog()
 
 	kafka.StartRunner(s.ID)
-	// → _sendStartCommand()_  (сокращено)
-	// запускаем локальный монитор heartbeat
-	ctx, cancel := context.WithCancel(context.Background())
-	s.cancelHB = cancel
-	go s.heartbeatWatchdog(ctx)
 
-	// сразу (асинхронно) просим FSM попробовать перейти в Active
+	watchdogCtx, cancel := context.WithCancel(context.Background())
+	s.cancelHB = cancel
+	go s.heartbeatWatchdog(watchdogCtx)
+
 	go func() {
-		if err := s.FSM.Event(ctx, "complete_startup"); err != nil {
-			log.Printf("[orchestrator] [%s] complete_startup canceled: %v", s.ID, err)
+		time.Sleep(100 * time.Millisecond)
+		if err := s.FSM.Event(context.Background(), "complete_startup"); err != nil {
+			log.Printf("[orchestrator] [%s] complete_startup error: %v", s.ID, err)
 		}
 	}()
 }
 
 func (s *Scenario) cbBeforeCompleteStartup(ctx context.Context, e *fsm.Event) {
 	if !s.waitForHeartbeat(MaxHBRetries) {
-		e.Cancel(fmt.Errorf("runner didn’t respond"))
+		log.Printf("[orchestrator] [%s] heartbeat not received, triggering shutdown", s.ID)
+
+		if s.FSM.Current() == StInStartupProcessing {
+			// Только если ещё не ушли из состояния
+			e.Cancel(nil)
+
+			go func() {
+				time.Sleep(100 * time.Millisecond)
+				if err := s.FSM.Event(context.Background(), "begin_shutdown"); err != nil {
+					log.Printf("[orchestrator] [%s] begin_shutdown triggered with error: %v", s.ID, err)
+				}
+			}()
+		}
 	}
 }
 
 func (s *Scenario) cbEnterInitShutdown(ctx context.Context, e *fsm.Event) {
-	log.Printf("[orchestrator] [%s] sending STOP to runner…", s.ID)
+	log.Printf("[orchestrator] [%s] initiating shutdown, current state: %s",
+		s.ID, s.FSM.Current())
 	kafka.StopRunner(s.ID)
 	// → _sendStopCommand()_
 	// останавливаем watchdog
-	if s.cancelHB != nil {
-		s.cancelHB()
-	}
+	s.stopWatchdog()
 	go func() {
-		_ = s.FSM.Event(ctx, "process_shutdown")
+		time.Sleep(100 * time.Millisecond)
+		if err := s.FSM.Event(context.Background(), "process_shutdown"); err != nil {
+			log.Printf("[orchestrator] [%s] process_shutdown error: %v", s.ID, err)
+		}
 	}()
 }
 
-func (s *Scenario) cbBeforeCompleteShutdown(ctx context.Context, e *fsm.Event) {
-	// ждём подтверждение корректной остановки (упрощённо)
+func (s *Scenario) cbEnterInShutdownProcessing(ctx context.Context, e *fsm.Event) {
+	log.Printf("[orchestrator] [%s] shutdown processing done, marking inactive…", s.ID)
+
 	time.Sleep(1 * time.Second)
+
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		if err := s.FSM.Event(context.Background(), "complete_shutdown"); err != nil {
+			log.Printf("[orchestrator] [%s] complete_shutdown failed: %v", s.ID, err)
+		}
+	}()
+}
+
+func (s *Scenario) cbEnterInactive(ctx context.Context, e *fsm.Event) {
+	log.Printf("[orchestrator] [%s] scenario is now inactive", s.ID)
+
+	s.stopWatchdog()
 }
 
 /* ---------- 5. Heartbeat‑API для Runner‑а ---------- */
@@ -124,12 +155,15 @@ func (s *Scenario) AcceptHeartbeat() {
 
 /* ---------- 6. Внутренняя логика ---------- */
 
+func (s *Scenario) Reset() {
+	s.hbMu.Lock()
+	s.lastHB = time.Time{}
+	s.hbMu.Unlock()
+}
+
 func (s *Scenario) waitForHeartbeat(maxRetries int) bool {
 	for i := 0; i < maxRetries; i++ {
-		s.hbMu.Lock()
-		ok := time.Since(s.lastHB) <= HeartbeatTTL
-		s.hbMu.Unlock()
-		if ok {
+		if s.IsOk() {
 			return true
 		}
 		log.Printf("[orchestrator] [%s] no heartbeat, retry %d…", s.ID, i+1)
@@ -148,7 +182,15 @@ func (s *Scenario) IsOk() bool {
 	return false
 }
 
+func (s *Scenario) stopWatchdog() {
+	if s.cancelHB != nil {
+		s.cancelHB()
+		s.cancelHB = nil
+	}
+}
+
 func (s *Scenario) heartbeatWatchdog(ctx context.Context) {
+	log.Printf("[orchestrator] [FSM] [%s] heartbeat watchdog running", s.ID)
 	t := time.NewTicker(HeartbeatTTL)
 	defer t.Stop()
 	for {
@@ -157,11 +199,20 @@ func (s *Scenario) heartbeatWatchdog(ctx context.Context) {
 			return
 		case <-t.C:
 			s.hbMu.Lock()
-			expired := time.Since(s.lastHB) > HeartbeatTTL
+			lastHB := s.lastHB
 			s.hbMu.Unlock()
-			if expired && s.FSM.Is(StActive) {
+
+			expired := time.Since(lastHB) > HeartbeatTTL
+
+			currentState := s.FSM.Current()
+			if expired && (currentState == StActive || currentState == StInStartupProcessing) &&
+				currentState != StInitShutdown &&
+				currentState != StInShutdownProcessing {
+				log.Printf("[orchestrator] [%s] watchdog check: state=%s, lastHB=%v",
+					s.ID, s.FSM.Current(), time.Since(s.lastHB))
+
 				log.Printf("[orchestrator] [%s] heartbeat lost ➜ restart runner", s.ID)
-				_ = s.FSM.Event(ctx, "begin_shutdown") // инициируем graceful‑stop → запуск заново можете добавить
+				_ = s.FSM.Event(context.Background(), "begin_shutdown")
 			}
 		}
 	}

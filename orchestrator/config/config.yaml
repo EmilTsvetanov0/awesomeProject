@@ -5,4 +5,12 @@ kafka:
   assignor: roundrobin
   oldest: false
   verbose: true
-  runner_partitions: 3
+postgresql:
+  DATABASE_PORT: 5432
+  DATABASE_USER: postgres
+  DATABASE_PASSWORD: password
+  DATABASE_NAME: scenarios
+  DATABASE_HOST: orchestrator_db
+  max_attempts: 5
+server:
+  port: 8080

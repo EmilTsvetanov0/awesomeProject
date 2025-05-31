@@ -3,13 +3,11 @@ package main
 import (
 	"context"
 	"log"
-	"os"
-	"os/signal"
 	"sync"
-	"syscall"
 	"toutbox/internal/kafka"
 	"toutbox/internal/postgresql"
 	pclient "toutbox/internal/postgresql/client"
+	"toutbox/internal/utils"
 )
 
 // Service should just read postgres table "outbox" and post messages from there to kafka
@@ -19,12 +17,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	wg := &sync.WaitGroup{}
 
-	go func() {
-		c := make(chan os.Signal, 1)
-		signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
-		<-c
-		cancel()
-	}()
+	go utils.WaitForShutdownSignal(cancel)
 
 	// PostgreSQL initialization
 	newClient, err := pclient.NewClient(ctx)

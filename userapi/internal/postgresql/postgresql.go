@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"github.com/jackc/pgx/v5"
 	"log"
-	"orchestrator/internal/domain"
-	client2 "orchestrator/internal/postgresql/client"
+	"userapi/internal/domain"
+	client2 "userapi/internal/postgresql/client"
 )
 
 type PgClient struct {
@@ -40,6 +40,7 @@ func (r *PgClient) InsertScenario(ctx context.Context, id string) error {
 		return fmt.Errorf("insert scenario: %w", err)
 	}
 
+	// если дошли до сюда — была успешная вставка → добавим в outbox
 	outboxQuery := `
         INSERT INTO outbox (aggregate_type, aggregate_id, event_type, payload)
         VALUES ($1, $2, $3, $4)
@@ -60,14 +61,12 @@ func (r *PgClient) InsertScenario(ctx context.Context, id string) error {
 }
 
 func (r *PgClient) UpdateScenarioStatus(ctx context.Context, id string, newStatus string) error {
-	log.Printf("[orchestrator] [postgres] Setting status to %s", newStatus)
 	tx, err := r.client.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
-	// 1. Обновление поля status
 	updateQuery := `
         UPDATE scenarios 
         SET status = $2, updated_at = now()
@@ -84,7 +83,6 @@ func (r *PgClient) UpdateScenarioStatus(ctx context.Context, id string, newStatu
 		return fmt.Errorf("update scenario: %w", err)
 	}
 
-	// 2. Добавление события в outbox
 	outboxQuery := `
         INSERT INTO outbox (aggregate_type, aggregate_id, event_type, payload)
         VALUES ($1, $2, $3, $4)
@@ -103,7 +101,8 @@ func (r *PgClient) UpdateScenarioStatus(ctx context.Context, id string, newStatu
 	return tx.Commit(ctx)
 }
 
-func ApplyKafkaEvent(ctx context.Context, db client2.Client, evt domain.KafkaEvent) error {
+// TODO: Maybe add more variants
+func (r *PgClient) ApplyKafkaEvent(ctx context.Context, evt domain.KafkaEvent) error {
 	switch evt.EventType {
 
 	case "scenario.status_updated":
@@ -115,14 +114,33 @@ func ApplyKafkaEvent(ctx context.Context, db client2.Client, evt domain.KafkaEve
 			return fmt.Errorf("unmarshal scenario.status_updated: %w", err)
 		}
 
-		_, err := db.Exec(ctx,
+		_, err := r.client.Exec(ctx,
 			`UPDATE scenarios SET status = $1, updated_at = now() WHERE id = $2`,
 			data.Status, data.ID,
 		)
 		return err
 
-	// case "client.created": ...
-	// case "order.deleted": ...
+	case "scenario.created":
+		var data struct {
+			ID     string `json:"id"`
+			Status string `json:"status"`
+		}
+		if err := json.Unmarshal(evt.Payload, &data); err != nil {
+			return fmt.Errorf("unmarshal scenario.created: %w", err)
+		}
+
+		_, err := r.client.Exec(ctx,
+			`
+        INSERT INTO scenarios (id, status)
+        VALUES ($1, $2)
+        ON CONFLICT (id) DO NOTHING
+        RETURNING id
+    `,
+			data.ID, data.Status,
+		)
+		return err
+
+	// Maybe case "scenario.deleted": ...
 	default:
 		log.Printf("Unhandled event type: %s", evt.EventType)
 		return nil

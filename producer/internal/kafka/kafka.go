@@ -68,13 +68,20 @@ var (
 	verbose = true
 )
 
+const videoTopic = "videos"
+
 // Consumer
 
 type runnerGroupHandler struct {
 	runnerPool RunnerPool
 }
 
-var availablePaths = []string{"first", "second", "krol"}
+// TODO: Mock, need to replace this with maybe database records
+var availablePaths = map[string]bool{
+	"first":  true,
+	"second": true,
+	"krol":   true,
+}
 
 func (h *runnerGroupHandler) Setup(_ sarama.ConsumerGroupSession) error   { return nil }
 func (h *runnerGroupHandler) Cleanup(_ sarama.ConsumerGroupSession) error { return nil }
@@ -84,6 +91,15 @@ func (h *runnerGroupHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, clai
 		var runnerMsg domain.RunnerMsg
 		if err := json.Unmarshal(msg.Value, &runnerMsg); err != nil {
 			log.Printf("Error unmarshalling message: %v", err)
+			continue
+		}
+
+		if active, ok := availablePaths[runnerMsg.Id]; !(active && ok) {
+			if !ok {
+				log.Printf("Runner %s is not found in available paths", runnerMsg.Id)
+			} else {
+				log.Printf("Runner %s is not active", runnerMsg.Id)
+			}
 			continue
 		}
 
@@ -156,6 +172,12 @@ func handleAsyncProducerEvents() {
 				return
 			}
 			log.Println(fmt.Sprintf("[producer] Topic: %s, partition: %d, Offset: %d, Timestamp: %s", msg.Topic, msg.Partition, msg.Offset, msg.Timestamp.Format(time.RFC3339)))
+			bytes, err := msg.Value.Encode()
+			if err != nil {
+				log.Printf("Error decoding message value: %v", err)
+			} else {
+				log.Printf("[producer] Topic: %s, Msg: %s", msg.Topic, string(bytes))
+			}
 		}
 	}
 }
@@ -169,26 +191,22 @@ type Notification struct {
 	Timestamp int64  `json:"timestamp"`
 }
 
-//func ConnectProducer(brokers []string) (sarama.SyncProducer, error) {
-//	config := sarama.NewConfig()
-//	config.Producer.RequiredAcks = sarama.WaitForAll
-//	config.Producer.Return.Successes = true
-//	config.Producer.Return.Errors = true
-//	config.Producer.Retry.Max = 5
-//
-//	return sarama.NewSyncProducer(brokers, config)
-//}
+type RunnerMsg struct {
+	Id     string `json:"id"`
+	Action string `json:"action"`
+}
 
-func PushNotificationToQueue(topic string, message []byte) {
+func PushImageToQueue(id string, message []byte) {
 
 	if kafkaProducer == nil {
-		log.Print("[producer] kafka producer is not initialized")
+		log.Print("[producer] [PushImageToQueue] kafka producer is not initialized")
 		return
 	}
 
 	msg := &sarama.ProducerMessage{
-		Topic: topic,
+		Topic: videoTopic,
 		Value: sarama.ByteEncoder(message),
+		Key:   sarama.StringEncoder(id),
 	}
 
 	kafkaProducer.Input() <- msg

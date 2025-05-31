@@ -16,12 +16,14 @@ import (
 
 var hbInterval = 3 * time.Second
 var heartbeatURL = "http://localhost:8080/ping"
+var hbTries = 5
 
 func init() {
 	cconfig.InitConfig()
 
 	hbInterval = time.Duration(viper.GetInt("runner.heartbeat_interval")) * time.Second
 	heartbeatURL = "http://" + viper.GetString("runner.heartbeat_url")
+	hbTries = viper.GetInt("runner.heartbeat_tries")
 }
 
 type Runner struct {
@@ -40,6 +42,7 @@ func NewRunner(name string) *Runner {
 }
 
 func (r *Runner) Start(ctx context.Context) bool {
+	log.Printf("[producer] [Runner.Start] Runner %s starting", r.jobName)
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 	if r.active {
@@ -50,22 +53,43 @@ func (r *Runner) Start(ctx context.Context) bool {
 	// Здесь отправляем хартбиты
 
 	// TODO: Поменять, потому что завершение через контекст не сработает (сработает, но хочу по-другому)
+	// TODO: Не факт, что нужно менять
+	// TODO: Нужно убрать моментальное начало обработки кадров, а запускать её только если хартбиты были приняты в первый раз
 	go func(job string) {
+		currentTries := 0
 		ticker := time.NewTicker(hbInterval)
 		for {
 			select {
 			case <-ctx.Done():
 				ticker.Stop()
-				log.Println("Heartbeat stopped")
+				log.Println("[producer] Heartbeat stopped")
+				r.Stop()
 				return
 
 			case <-ticker.C:
+				if !r.active {
+					log.Println("[producer] Stopping heartbeat sending due to runner inactivity")
+					return
+				}
+				log.Printf("[producer] [Runner.Start] Sending heartbeat for %s", r.jobName)
 				payload := []byte(`{"id":"` + job + `","timestamp":` + strconv.FormatInt(time.Now().Unix(), 10) + `}`)
 
+				// TODO: Надо добавить нормальную проверку того, получен ли оркестратором heartbeat, потому что может прийти просто код 400 к примеру
 				resp, err := http.Post(heartbeatURL, "application/json", bytes.NewBuffer(payload))
-				if err != nil {
-					log.Println("Heartbeat send error:", err)
-					continue
+				log.Printf("[producer] [Runner.Start] Heartbeat response code: %d", resp.StatusCode)
+				if err != nil || resp.StatusCode != http.StatusOK {
+					if err != nil {
+						log.Println("Heartbeat send error:", err)
+					} else {
+						log.Println("Heartbeat send error: status code:", resp.StatusCode)
+					}
+					currentTries++
+					if currentTries >= hbTries {
+						log.Println("Heartbeat tries limit reached, cancelling runner")
+						r.Stop()
+						resp.Body.Close()
+						return
+					}
 				}
 				resp.Body.Close()
 			}
@@ -73,6 +97,7 @@ func (r *Runner) Start(ctx context.Context) bool {
 	}(r.jobName)
 
 	// Здесь отправляем кадры (пока симуляция)
+	// TODO: Подключить обработку кадров из видоса и поменять топик на videos
 	go func(job string) {
 		ticker := time.NewTicker(3 * time.Second)
 		i := 0
@@ -93,7 +118,7 @@ func (r *Runner) Start(ctx context.Context) bool {
 					r.mutex.Unlock()
 					return
 				}
-				kafka.PushNotificationToQueue("notifications", msg)
+				kafka.PushImageToQueue(job, msg)
 			}
 		}
 	}(r.jobName)
@@ -101,6 +126,7 @@ func (r *Runner) Start(ctx context.Context) bool {
 }
 
 func (r *Runner) Stop() bool {
+	log.Printf("[producer] [Runner.Stop] Runner %s stopping", r.jobName)
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 	if !r.active {
@@ -119,7 +145,9 @@ type Pool struct {
 }
 
 func NewPool() *Pool {
-	return &Pool{}
+	return &Pool{
+		pool: make(map[string]*Runner),
+	}
 }
 
 func (p *Pool) Start(ctx context.Context, id string) {
@@ -129,6 +157,7 @@ func (p *Pool) Start(ctx context.Context, id string) {
 	r, ok := p.pool[id]
 	if !ok {
 		r = NewRunner(id)
+		p.pool[id] = r
 	}
 
 	if !r.Start(ctx) {

@@ -1,6 +1,47 @@
 version: '3.8'
 
 services:
+
+  orchestrator_db:
+    image: postgres:13
+    container_name: postgres_odb
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: scenarios
+    volumes:
+      - ./migrations/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5431:5432"
+    healthcheck:
+      test: [ "CMD-SHELL", "sh -c 'pg_isready -U postgres -d scenarios'" ]
+      interval: 5s
+      timeout: 10s
+      retries: 5
+      start_period: 10s
+    networks:
+      - my-network
+
+  userapi_db:
+    image: postgres:13
+    container_name: postgres_udb
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: scenarios
+    volumes:
+      - ./migrations/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: [ "CMD-SHELL", "sh -c 'pg_isready -U postgres -d scenarios'" ]
+      interval: 5s
+      timeout: 10s
+      retries: 5
+      start_period: 10s
+    networks:
+      - my-network
+
   kafka:
     image: apache/kafka:4.0.0
     container_name: kafka
@@ -25,7 +66,6 @@ services:
       KAFKA_LOG_DIRS: /tmp/kraft-data
       KAFKA_METADATA_LOG_DIR: /tmp/kraft-meta
 
-      # Отключаем автосоздание топиков, чтобы быть уверенными, что топики создаются именно нашим скриптом
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
       KAFKA_NUM_PARTITIONS: 3
       KAFKA_DEFAULT_REPLICATION_FACTOR: 1
@@ -50,35 +90,103 @@ services:
       /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --topic videos --partitions 3 --replication-factor 1 &&
       /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --topic runners --partitions 3 --replication-factor 1 &&
       /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --topic scenario --partitions 1 --replication-factor 1 &&
+      /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --topic outbox --partitions 1 --replication-factor 1 &&
       /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --topic notifications --partitions 3 --replication-factor 1
     " ]
     restart: "no"
 
-  producer:
+  producer1:
     build:
       context: ./producer
-    container_name: producer
+    container_name: producer1
     networks:
       - my-network
-    ports:
-      - "8080:8080"
-    environment:
-      KAFKA_BROKER: kafka:9092  # правильный адрес брокера
     depends_on:
       kafka:
         condition: service_healthy
       kafka-init:
         condition: service_completed_successfully
 
-  consumer:
+  producer2:
     build:
-      context: ./consumer
-    container_name: consumer
+      context: ./producer
+    container_name: producer2
     networks:
       - my-network
-    environment:
-      KAFKA_BROKER: kafka:9092
     depends_on:
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+
+  producer3:
+    build:
+      context: ./producer
+    container_name: producer3
+    networks:
+      - my-network
+    depends_on:
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+
+# TODO: Пока для теста не нужен, потом добавить
+#  consumer:
+#    build:
+#      context: ./consumer
+#    container_name: consumer
+#    networks:
+#      - my-network
+#    environment:
+#      KAFKA_BROKER: kafka:9092
+#    depends_on:
+#      kafka:
+#        condition: service_healthy
+#      kafka-init:
+#        condition: service_completed_successfully
+
+  orchestrator:
+    build:
+      context: ./orchestrator
+    container_name: orchestrator
+    networks:
+      - my-network
+    depends_on:
+      orchestrator_db:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+
+  toutbox:
+    build:
+      context: ./toutbox
+    container_name: toutbox
+    networks:
+      - my-network
+    depends_on:
+      orchestrator_db:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+
+  userapi:
+    build:
+      context: ./userapi
+    container_name: userapi
+    networks:
+      - my-network
+    ports:
+      - "8080:8080"
+    env_file:
+      - ./userapi/.env
+    depends_on:
+      userapi_db:
+        condition: service_healthy
       kafka:
         condition: service_healthy
       kafka-init:

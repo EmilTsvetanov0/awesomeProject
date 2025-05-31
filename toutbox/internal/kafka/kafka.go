@@ -42,7 +42,7 @@ func init() {
 var (
 	Brokers            = []string{""}
 	version            = sarama.MaxVersion
-	oldest             = false // Это чтобы перечитывать партиции каждый раз с начала
+	oldest             = false
 	verbose            = true
 	outboxReadInterval = 2 * time.Second
 	maxBatchSize       = 100

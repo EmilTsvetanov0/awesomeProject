@@ -31,7 +31,6 @@ func init() {
 	Brokers = viper.GetStringSlice("kafka.brokers")
 	oldest = viper.GetBool("kafka.oldest")
 	verbose = viper.GetBool("kafka.verbose")
-	runner_partitions = viper.GetInt("kafka.runner_partitions")
 	if verbose {
 		sarama.Logger = log.New(os.Stdout, "[sarama] ", log.LstdFlags)
 	}
@@ -44,11 +43,10 @@ func init() {
 }
 
 var (
-	Brokers           = []string{""}
-	version           = sarama.MaxVersion
-	oldest            = false // Это чтобы перечитывать партиции каждый раз с начала
-	verbose           = true
-	runner_partitions = 0
+	Brokers = []string{""}
+	version = sarama.MaxVersion
+	oldest  = false // Это чтобы перечитывать партиции каждый раз с начала
+	verbose = true
 )
 
 var consumer sarama.Consumer
@@ -114,7 +112,7 @@ LOOP:
 			log.Printf("[orchestrator] Consumer message: %+v with count: %d\n", runnerMsg, msgCnt)
 			if runnerMsg.Action == "start" {
 				if !r.ScenarioExists(runnerMsg.Id) {
-					log.Printf("[orchestrator] Scenario %s does not exist. Creating...", runnerMsg.Id)
+					log.Printf("[orchestrator] Scenario %s does not exist. Creatingif s.runnerPool == nil {\n\t\tlog.Println(\"❌ runnerPool is nil\")\n\t\tc.JSON(http.StatusInternalServerError, gin.H{\"error\": \"runnerPool is nil\"})\n\t\treturn\n\t}...", runnerMsg.Id)
 					err = r.pg.InsertScenario(ctx, runnerMsg.Id)
 					if err != nil {
 						log.Printf("[orchestrator] Error creating scenario: %v", err)
@@ -128,6 +126,8 @@ LOOP:
 				if err = r.StopScenario(ctx, runnerMsg.Id); err != nil {
 					log.Printf("[orchestrator] Error running scenario: %v", err)
 				}
+			} else {
+				log.Printf("[orchestrator] Skipping scenario %s, command \"%s\" is not recognized", runnerMsg.Id, runnerMsg.Action)
 			}
 
 		}
@@ -229,30 +229,22 @@ func StartRunner(id string) {
 }
 
 func StopRunner(id string) {
+	log.Println("[orchestrator] [StopRunner] Stopping runner " + id)
 	topic := "runners"
 	message, _ := json.Marshal(domain.RunnerMsg{Id: id, Action: "stop"})
 
 	// В связи с непредсказуемой ребалансировкой, единственный рабочий вариант - отправлять уведы об остановке всем консьюмерам сразу
-	for i := 0; i < runner_partitions; i++ {
+	partitions, err := consumer.Partitions(topic)
+	if err != nil {
+		log.Printf("[orchestrator] [StopRunner] Error getting list of partitions for topic %s: %v", topic, err)
+	}
+
+	for _, partition := range partitions {
 		msg := &sarama.ProducerMessage{
 			Topic:     topic,
 			Value:     sarama.ByteEncoder(message),
-			Partition: 0,
+			Partition: partition,
 		}
 		PushMessageToQueue(msg)
 	}
-}
-
-// TODO: Delete ts
-func ChangeState(id string, state string) {
-	topic := "outbox"
-	message, _ := json.Marshal(domain.RunnerMsg{Id: id, Action: state})
-	PushMessageToQueueKey(topic, sarama.StringEncoder(id), message)
-}
-
-// TODO: Оказалось, мне даже не нужна эта функция. Можно удалить
-func SendToOutbox(evt domain.KafkaEvent) {
-	topic := "outbox"
-	message, _ := json.Marshal(evt)
-	PushMessageToQueue(topic, sarama.StringEncoder(""), message)
 }
