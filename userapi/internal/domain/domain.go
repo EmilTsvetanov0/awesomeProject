@@ -7,6 +7,10 @@ type RunnerMsg struct {
 	Action string `json:"action"`
 }
 
+type StatusReq struct {
+	Id string `json:"id"`
+}
+
 type KafkaEvent struct {
 	AggregateType string          `json:"aggregate_type"`
 	AggregateID   string          `json:"aggregate_id"`

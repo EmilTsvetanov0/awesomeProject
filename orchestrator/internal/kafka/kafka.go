@@ -112,7 +112,7 @@ LOOP:
 			log.Printf("[orchestrator] Consumer message: %+v with count: %d\n", runnerMsg, msgCnt)
 			if runnerMsg.Action == "start" {
 				if !r.ScenarioExists(runnerMsg.Id) {
-					log.Printf("[orchestrator] Scenario %s does not exist. Creatingif s.runnerPool == nil {\n\t\tlog.Println(\"❌ runnerPool is nil\")\n\t\tc.JSON(http.StatusInternalServerError, gin.H{\"error\": \"runnerPool is nil\"})\n\t\treturn\n\t}...", runnerMsg.Id)
+					log.Printf("[orchestrator] Scenario %s does not exist. Creating", runnerMsg.Id)
 					err = r.pg.InsertScenario(ctx, runnerMsg.Id)
 					if err != nil {
 						log.Printf("[orchestrator] Error creating scenario: %v", err)

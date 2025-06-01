@@ -69,7 +69,7 @@ func main() {
 	// Server init
 	port := os.Getenv("PORT")
 	log.Printf("listening on port %s", port)
-	client := server.New(port)
+	client := server.New(port, repository)
 
 	if err := client.Run(); err != nil {
 		return

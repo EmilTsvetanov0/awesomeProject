@@ -1,15 +1,20 @@
 package server
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"github.com/gin-gonic/gin"
+	"log"
 	"net/http"
 	"userapi/internal/domain"
 	"userapi/internal/kafka"
+	"userapi/internal/postgresql"
 )
 
 type Server struct {
 	port string
+	pg   *postgresql.PgClient
 }
 
 type Response struct {
@@ -17,22 +22,24 @@ type Response struct {
 	Message string `json:"message"`
 }
 
-func New(port string) *Server {
+func New(port string, client *postgresql.PgClient) *Server {
 	return &Server{
 		port: port,
+		pg:   client,
 	}
 }
 
 func (s *Server) newApi() *gin.Engine {
 	g := gin.New()
 	g.POST("/scenario", s.manageScenarioHandler)
+	g.GET("/scenario/:id", s.getStatusHandler)
 	//TODO: Finish when everything else works
-	//g.GET("/scenario/:id", s.getScenarioHandler)
 	//g.GET("/prediction/:id", s.getPredictionHandler)
 	return g
 }
 
 // TODO: Добавить проверку на текущий статус, чтобы не отправлять лишние уведомления и давать какой-то осмысленный ответ
+// В теории и так работать будет
 func (s *Server) manageScenarioHandler(ctx *gin.Context) {
 
 	var req domain.RunnerMsg
@@ -51,6 +58,22 @@ func (s *Server) manageScenarioHandler(ctx *gin.Context) {
 	ctx.Header("Content-Type", "application/json")
 
 	ctx.JSON(http.StatusOK, response)
+}
+
+func (s *Server) getStatusHandler(ctx *gin.Context) {
+	id := ctx.Param("id")
+
+	status, err := s.pg.GetScenarioStatus(context.Background(), id)
+	if err != nil {
+		if errors.Is(err, postgresql.ErrNoScenario) {
+			ctx.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		log.Printf("[userapi] Error getting status: %v", err)
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	ctx.JSON(http.StatusOK, gin.H{"status": status})
 }
 
 func (s *Server) Run() error {
