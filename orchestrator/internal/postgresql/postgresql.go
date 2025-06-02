@@ -51,7 +51,7 @@ func (r *PgClient) InsertScenario(ctx context.Context, id string) error {
 	}
 	payloadJSON, _ := json.Marshal(payload)
 
-	_, err = tx.Exec(ctx, outboxQuery, "scenario", insertedID, "scenario.created", payloadJSON)
+	_, err = tx.Exec(ctx, outboxQuery, "scenario", insertedID, "created", payloadJSON)
 	if err != nil {
 		return fmt.Errorf("insert outbox: %w", err)
 	}
@@ -95,7 +95,7 @@ func (r *PgClient) UpdateScenarioStatus(ctx context.Context, id string, newStatu
 	}
 	payloadJSON, _ := json.Marshal(payload)
 
-	_, err = tx.Exec(ctx, outboxQuery, "scenario", id, "scenario.status_updated", payloadJSON)
+	_, err = tx.Exec(ctx, outboxQuery, "scenario", id, "status_updated", payloadJSON)
 	if err != nil {
 		return fmt.Errorf("insert outbox: %w", err)
 	}

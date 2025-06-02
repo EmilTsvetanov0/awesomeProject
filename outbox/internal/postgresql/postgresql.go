@@ -3,8 +3,8 @@ package postgresql
 import (
 	"context"
 	"log"
-	"toutbox/internal/domain"
-	client2 "toutbox/internal/postgresql/client"
+	"outbox/internal/domain"
+	client2 "outbox/internal/postgresql/client"
 )
 
 type PgClient struct {

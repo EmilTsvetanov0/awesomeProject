@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"producer/internal/cconfig"
+	"producer/internal/domain"
 	"producer/internal/kafka"
 	"strconv"
 	"sync"
@@ -114,9 +115,13 @@ func (r *Runner) Start(ctx context.Context) bool {
 				return
 			case <-ticker.C:
 				i++
-				msg, err := json.Marshal(kafka.Notification{
-					Title:     "message number " + strconv.Itoa(i) + " for job " + job,
-					Timestamp: time.Now().Unix(),
+				//msg, err := json.Marshal(kafka.Notification{
+				//	Title:     "message number " + strconv.Itoa(i) + " for job " + job,
+				//	Timestamp: time.Now().Unix(),
+				//})
+				msg, err := json.Marshal(domain.VideoFrame{
+					ScenarioId: r.jobName,
+					Data:       []byte{},
 				})
 				if err != nil {
 					log.Print("Unmarshalling error: ", err)

@@ -15,3 +15,10 @@ CREATE TABLE IF NOT EXISTS outbox (
     processed_at TIMESTAMP NULL,
     processed BOOLEAN NOT NULL DEFAULT FALSE
 );
+
+CREATE TABLE IF NOT EXISTS images (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    scenario_id TEXT NOT NULL DEFAULT 'unknown',
+    class TEXT NOT NULL DEFAULT 'noclass',
+    created_at TIMESTAMP NOT NULL DEFAULT now()
+)

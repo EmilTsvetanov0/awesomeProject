@@ -42,6 +42,26 @@ services:
     networks:
       - my-network
 
+  inference_db:
+    image: postgres:13
+    container_name: postgres_idb
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: scenarios
+    volumes:
+      - ./migrations/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: [ "CMD-SHELL", "sh -c 'pg_isready -U postgres -d scenarios'" ]
+      interval: 5s
+      timeout: 10s
+      retries: 5
+      start_period: 10s
+    networks:
+      - my-network
+
   kafka:
     image: apache/kafka:4.0.0
     container_name: kafka
@@ -160,10 +180,26 @@ services:
       kafka-init:
         condition: service_completed_successfully
 
-  toutbox:
+  inference:
     build:
-      context: ./toutbox
-    container_name: toutbox
+      context: ./inference
+    container_name: inference
+    networks:
+      - my-network
+    depends_on:
+      inference_db:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    environment:
+      PYTHONUNBUFFERED: 1
+
+  to_orchestrator:
+    build:
+      context: ./outbox
+    container_name: to_orchestrator
     networks:
       - my-network
     depends_on:
@@ -173,6 +209,32 @@ services:
         condition: service_healthy
       kafka-init:
         condition: service_completed_successfully
+    environment:
+      DATABASE_PORT: 5432
+      DATABASE_USER: postgres
+      DATABASE_PASSWORD: password
+      DATABASE_NAME: scenarios
+      DATABASE_HOST: orchestrator_db
+
+  to_inference:
+    build:
+      context: ./outbox
+    container_name: to_inference
+    networks:
+      - my-network
+    depends_on:
+      inference_db:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_PORT: 5432
+      DATABASE_USER: postgres
+      DATABASE_PASSWORD: password
+      DATABASE_NAME: scenarios
+      DATABASE_HOST: inference_db
 
   userapi:
     build:

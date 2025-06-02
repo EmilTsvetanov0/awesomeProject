@@ -8,8 +8,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/viper"
 	"log"
+	"os"
+	"outbox/internal/utils"
 	"time"
-	"toutbox/internal/utils"
 )
 
 type Client interface {
@@ -22,11 +23,11 @@ type Client interface {
 func NewClient(ctx context.Context) (*pgxpool.Pool, error) {
 	dsn := fmt.Sprintf(
 		"postgresql://%s:%s@%s:%s/%s",
-		viper.GetString("postgresql.DATABASE_USER"),
-		viper.GetString("postgresql.DATABASE_PASSWORD"),
-		viper.GetString("postgresql.DATABASE_HOST"),
-		viper.GetString("postgresql.DATABASE_PORT"),
-		viper.GetString("postgresql.DATABASE_NAME"),
+		os.Getenv("DATABASE_USER"),
+		os.Getenv("DATABASE_PASSWORD"),
+		os.Getenv("DATABASE_HOST"),
+		os.Getenv("DATABASE_PORT"),
+		os.Getenv("DATABASE_NAME"),
 	)
 	var pool *pgxpool.Pool
 	var err error

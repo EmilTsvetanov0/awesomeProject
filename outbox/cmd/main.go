@@ -3,11 +3,11 @@ package main
 import (
 	"context"
 	"log"
+	"outbox/internal/kafka"
+	"outbox/internal/postgresql"
+	pclient "outbox/internal/postgresql/client"
+	"outbox/internal/utils"
 	"sync"
-	"toutbox/internal/kafka"
-	"toutbox/internal/postgresql"
-	pclient "toutbox/internal/postgresql/client"
-	"toutbox/internal/utils"
 )
 
 // Service should just read postgres table "outbox" and post messages from there to kafka

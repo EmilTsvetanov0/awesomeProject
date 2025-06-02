@@ -8,10 +8,10 @@ import (
 	"github.com/spf13/viper"
 	"log"
 	"os"
+	"outbox/internal/cconfig"
+	"outbox/internal/domain"
+	"outbox/internal/postgresql"
 	"time"
-	"toutbox/internal/cconfig"
-	"toutbox/internal/domain"
-	"toutbox/internal/postgresql"
 )
 
 type RunnerService struct {

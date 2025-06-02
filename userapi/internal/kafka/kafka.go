@@ -107,6 +107,7 @@ LOOP:
 
 			log.Printf("[userapi] Consumer kafka event: %+v", loggableEvent)
 
+			// TODO: Возможно, стоит подумать над тем, чтобы не все события применять. Скажем, если понадобится, можно игнорить инференс
 			if err := r.pg.ApplyKafkaEvent(ctx, kafkaEvent); err != nil {
 				log.Printf("[userapi] Error applying kafka event: %v", err)
 			}

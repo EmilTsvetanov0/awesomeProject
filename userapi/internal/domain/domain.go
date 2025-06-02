@@ -1,6 +1,9 @@
 package domain
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"time"
+)
 
 type RunnerMsg struct {
 	Id     string `json:"id"`
@@ -23,4 +26,10 @@ type LoggableKafkaEvent struct {
 	AggregateID   string `json:"aggregate_id"`
 	EventType     string `json:"event_type"`
 	Payload       string `json:"payload,omitempty"`
+}
+
+type Prediction struct {
+	ScenarioId string    `json:"scenario_id"`
+	Class      string    `json:"class"`
+	CreatedAt  time.Time `json:"created_at"`
 }

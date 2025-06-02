@@ -33,9 +33,22 @@ func (s *Server) newApi() *gin.Engine {
 	g := gin.New()
 	g.POST("/scenario", s.manageScenarioHandler)
 	g.GET("/scenario/:id", s.getStatusHandler)
-	//TODO: Finish when everything else works
-	//g.GET("/prediction/:id", s.getPredictionHandler)
+	g.GET("/prediction/:id", s.getPredictionHandler)
 	return g
+}
+
+func (s *Server) getPredictionHandler(ctx *gin.Context) {
+	id := ctx.Param("id")
+
+	predictions, err := s.pg.GetPredictions(ctx, id)
+
+	if err != nil {
+		log.Printf("[userapi] Error getting predictions: %v", err)
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{"status": "ok", "predictions": predictions})
 }
 
 // TODO: Добавить проверку на текущий статус, чтобы не отправлять лишние уведомления и давать какой-то осмысленный ответ
