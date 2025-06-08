@@ -4,7 +4,6 @@ import (
 	"context"
 	"github.com/looplab/fsm"
 	"log"
-	"orchestrator/internal/kafka"
 	"sync"
 	"time"
 )
@@ -26,18 +25,24 @@ const (
 
 /* ---------- 2. Тип Scenario ---------- */
 
+type RunnerService interface {
+	StartRunner(id string)
+	StopRunner(id string)
+}
+
 type Scenario struct {
 	ID       string
 	FSM      *fsm.FSM
 	hbMu     sync.Mutex // защита lastHB
 	lastHB   time.Time  // время последнего heartbeat
 	cancelHB context.CancelFunc
+	rs       RunnerService
 }
 
 /* ---------- 3. Конструктор ---------- */
 
-func NewScenario(id string, enterState func(ctx context.Context, id string, dst string)) *Scenario {
-	s := &Scenario{ID: id}
+func NewScenario(id string, enterState func(ctx context.Context, id string, dst string), runnerService RunnerService) *Scenario {
+	s := &Scenario{ID: id, rs: runnerService}
 	s.Reset()
 
 	s.FSM = fsm.NewFSM(
@@ -78,7 +83,7 @@ func (s *Scenario) cbEnterStartupProcessing(ctx context.Context, e *fsm.Event) {
 
 	s.stopWatchdog()
 
-	kafka.StartRunner(s.ID)
+	s.rs.StartRunner(s.ID)
 
 	watchdogCtx, cancel := context.WithCancel(context.Background())
 	s.cancelHB = cancel
@@ -113,7 +118,7 @@ func (s *Scenario) cbBeforeCompleteStartup(ctx context.Context, e *fsm.Event) {
 func (s *Scenario) cbEnterInitShutdown(ctx context.Context, e *fsm.Event) {
 	log.Printf("[orchestrator] [%s] initiating shutdown, current state: %s",
 		s.ID, s.FSM.Current())
-	kafka.StopRunner(s.ID)
+	s.rs.StopRunner(s.ID)
 	// → _sendStopCommand()_
 	// останавливаем watchdog
 	s.stopWatchdog()

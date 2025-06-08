@@ -28,10 +28,15 @@ func main() {
 
 	//Producer
 
+	producer, err := kafka.NewKafkaProducer()
+	if err != nil {
+		log.Fatal("[orchestrator] Failed to start Kafka producer:", err)
+	}
+
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		err := kafka.StartProducer(ctx)
+		err := producer.StartProducer(ctx)
 		if err != nil {
 			log.Printf("[orchestrator] Kafka producer exited with error: %s\n", err)
 		} else {
@@ -52,24 +57,29 @@ func main() {
 	// Runners pool
 
 	runnerPool := runners.NewScenarioPool(
+		repository,
 		func(ctx context.Context, id string, newStatus string) {
 			if err := repository.UpdateScenarioStatus(ctx, id, newStatus); err != nil {
 				log.Println("[orchestrator] UpdateScenarioStatus error: ", err)
 			}
 		},
+		producer,
 	)
 
 	// Consumer
 
 	wg.Add(1)
 
-	rs := kafka.NewRunnerService(runnerPool, repository)
+	consumer, err := kafka.NewKafkaConsumer(runnerPool)
+	if err != nil {
+		log.Fatal("[orchestrator] Failed to start Kafka consumer:", err)
+	}
 
 	topic := "scenario"
 
 	go func() {
 		defer wg.Done()
-		err := rs.StartConsumer(ctx, topic)
+		err := consumer.StartConsumer(ctx, topic)
 		if err != nil {
 			log.Printf("[orchestrator] Kafka consumer exited with error: %s\n", err)
 		} else {
@@ -78,7 +88,7 @@ func main() {
 	}()
 
 	// Server init
-	client := server.New("8080", repository, runnerPool)
+	client := server.New("8080", runnerPool)
 
 	if err := client.Run(); err != nil {
 		return

@@ -125,9 +125,7 @@ func (r *Runner) Start(ctx context.Context) bool {
 				})
 				if err != nil {
 					log.Print("Unmarshalling error: ", err)
-					r.mutex.Lock()
-					r.active = false
-					r.mutex.Unlock()
+					r.Stop()
 					return
 				}
 				kafka.PushImageToQueue(job, msg)

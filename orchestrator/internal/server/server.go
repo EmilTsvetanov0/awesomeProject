@@ -7,13 +7,11 @@ import (
 	"log"
 	"net/http"
 	"orchestrator/internal/domain"
-	"orchestrator/internal/postgresql"
 	"orchestrator/internal/runners"
 )
 
 type Server struct {
 	port       string
-	service    *postgresql.PgClient
 	runnerPool *runners.ScenarioPool
 }
 
@@ -22,10 +20,9 @@ type Response struct {
 	Message string `json:"message"`
 }
 
-func New(port string, client *postgresql.PgClient, rp *runners.ScenarioPool) *Server {
+func New(port string, rp *runners.ScenarioPool) *Server {
 	return &Server{
 		port:       port,
-		service:    client,
 		runnerPool: rp,
 	}
 }
