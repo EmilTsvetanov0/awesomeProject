@@ -98,7 +98,7 @@ func (r *ScenarioPool) ScenarioWorker(ctx context.Context, id string, ch <-chan 
 			}
 		} else if msg.Action == "stop" {
 			if err := r.StopScenario(ctx, msg.Id); err != nil {
-				log.Printf("[orchestrator] Error running scenario: %v", err)
+				log.Printf("[orchestrator] Error stopping scenario: %v", err)
 			}
 		} else {
 			log.Printf("[orchestrator] Skipping scenario %s, command \"%s\" is not recognized", msg.Id, msg.Action)

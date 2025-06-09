@@ -26,16 +26,18 @@ type RunnerService interface {
 }
 
 type Scenario struct {
-	ID       string
-	FSM      *fsm.FSM
-	hbMu     sync.Mutex
-	lastHB   time.Time
-	cancelHB context.CancelFunc
-	rs       RunnerService
+	ID          string
+	FSM         *fsm.FSM
+	hbMu        sync.Mutex
+	lastHB      time.Time
+	cancelHB    context.CancelFunc
+	rs          RunnerService
+	needRestart bool
+	restartMu   sync.Mutex
 }
 
 func NewScenario(id string, enterState func(ctx context.Context, id string, dst string), runnerService RunnerService) *Scenario {
-	s := &Scenario{ID: id, rs: runnerService}
+	s := &Scenario{ID: id, rs: runnerService, needRestart: false}
 	s.Reset()
 
 	s.FSM = fsm.NewFSM(
@@ -70,6 +72,8 @@ func NewScenario(id string, enterState func(ctx context.Context, id string, dst 
 // Колбеки FSM
 
 func (s *Scenario) cbEnterStartupProcessing(ctx context.Context, e *fsm.Event) {
+	s.SetNeedRestart(false)
+
 	log.Printf("[orchestrator] [%s] entering startup processing, current state: %s",
 		s.ID, s.FSM.Current())
 
@@ -138,6 +142,18 @@ func (s *Scenario) cbEnterInactive(ctx context.Context, e *fsm.Event) {
 	log.Printf("[orchestrator] [%s] scenario is now inactive", s.ID)
 
 	s.stopWatchdog()
+
+	if s.NeedRestart() {
+		log.Printf("[orchestrator] [%s] restarting scenario after going inactive", s.ID)
+		s.needRestart = false
+
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			if err := s.FSM.Event(context.Background(), "begin_startup"); err != nil {
+				log.Printf("[orchestrator] [%s] begin_startup failed after restart: %v", s.ID, err)
+			}
+		}()
+	}
 }
 
 // Heartbeats
@@ -149,6 +165,18 @@ func (s *Scenario) AcceptHeartbeat() {
 }
 
 // Внутренняя логика
+
+func (s *Scenario) SetNeedRestart(v bool) {
+	s.restartMu.Lock()
+	defer s.restartMu.Unlock()
+	s.needRestart = v
+}
+
+func (s *Scenario) NeedRestart() bool {
+	s.restartMu.Lock()
+	defer s.restartMu.Unlock()
+	return s.needRestart
+}
 
 func (s *Scenario) Reset() {
 	s.hbMu.Lock()
@@ -207,6 +235,8 @@ func (s *Scenario) heartbeatWatchdog(ctx context.Context) {
 					s.ID, s.FSM.Current(), time.Since(s.lastHB))
 
 				log.Printf("[orchestrator] [%s] heartbeat lost ➜ restart runner", s.ID)
+
+				s.SetNeedRestart(true)
 				_ = s.FSM.Event(context.Background(), "begin_shutdown")
 			}
 		}
