@@ -150,21 +150,6 @@ services:
       kafka-init:
         condition: service_completed_successfully
 
-# TODO: Пока для теста не нужен, потом добавить
-#  consumer:
-#    build:
-#      context: ./consumer
-#    container_name: consumer
-#    networks:
-#      - my-network
-#    environment:
-#      KAFKA_BROKER: kafka:9092
-#    depends_on:
-#      kafka:
-#        condition: service_healthy
-#      kafka-init:
-#        condition: service_completed_successfully
-
   orchestrator:
     build:
       context: ./orchestrator

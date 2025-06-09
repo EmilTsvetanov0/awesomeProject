@@ -51,8 +51,6 @@ func (s *Server) getPredictionHandler(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, gin.H{"status": "ok", "predictions": predictions})
 }
 
-// TODO: Добавить проверку на текущий статус, чтобы не отправлять лишние уведомления и давать какой-то осмысленный ответ
-// В теории и так работать будет
 func (s *Server) manageScenarioHandler(ctx *gin.Context) {
 
 	var req domain.RunnerMsg

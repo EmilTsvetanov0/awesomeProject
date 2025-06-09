@@ -111,11 +111,11 @@ func (s *Scenario) cbBeforeCompleteStartup(ctx context.Context, e *fsm.Event) {
 }
 
 func (s *Scenario) cbEnterInitShutdown(ctx context.Context, e *fsm.Event) {
-	log.Printf("[orchestrator] [%s] initiating shutdown, current state: %s",
+	log.Printf("[orchestrator] [%s] initiating shutdown: notifying runner. Current state: %s",
 		s.ID, s.FSM.Current())
+
 	s.rs.StopRunner(s.ID)
 
-	s.stopWatchdog()
 	go func() {
 		time.Sleep(100 * time.Millisecond)
 		if err := s.FSM.Event(context.Background(), "process_shutdown"); err != nil {
@@ -125,9 +125,9 @@ func (s *Scenario) cbEnterInitShutdown(ctx context.Context, e *fsm.Event) {
 }
 
 func (s *Scenario) cbEnterInShutdownProcessing(ctx context.Context, e *fsm.Event) {
-	log.Printf("[orchestrator] [%s] shutdown processing done, marking inactive...", s.ID)
+	log.Printf("[orchestrator] [%s] shutdown processing: stopping watchdog", s.ID)
 
-	time.Sleep(1 * time.Second)
+	s.stopWatchdog()
 
 	go func() {
 		time.Sleep(100 * time.Millisecond)
@@ -139,8 +139,6 @@ func (s *Scenario) cbEnterInShutdownProcessing(ctx context.Context, e *fsm.Event
 
 func (s *Scenario) cbEnterInactive(ctx context.Context, e *fsm.Event) {
 	log.Printf("[orchestrator] [%s] scenario is now inactive", s.ID)
-
-	s.stopWatchdog()
 
 	if s.NeedRestart() {
 		log.Printf("[orchestrator] [%s] restarting scenario after going inactive", s.ID)
@@ -188,7 +186,7 @@ func (s *Scenario) waitForHeartbeat(maxRetries int) bool {
 		if s.IsOk() {
 			return true
 		}
-		log.Printf("[orchestrator] [%s] no heartbeat, retry %d…", s.ID, i+1)
+		log.Printf("[orchestrator] [%s] no heartbeat, retry %d", s.ID, i+1)
 		time.Sleep(HeartbeatTTL)
 	}
 	return false
@@ -233,7 +231,7 @@ func (s *Scenario) heartbeatWatchdog(ctx context.Context) {
 				log.Printf("[orchestrator] [%s] watchdog check: state=%s, lastHB=%v",
 					s.ID, s.FSM.Current(), time.Since(s.lastHB))
 
-				log.Printf("[orchestrator] [%s] heartbeat lost ➜ restart runner", s.ID)
+				log.Printf("[orchestrator] [%s] heartbeat lost -> restart runner", s.ID)
 
 				s.SetNeedRestart(true)
 				_ = s.FSM.Event(context.Background(), "begin_shutdown")
