@@ -62,7 +62,7 @@ func NewScenario(id string, enterState func(ctx context.Context, id string, dst 
 			// ---- для логов и сохранения состояния
 			"enter_state": func(ctx context.Context, e *fsm.Event) {
 				enterState(ctx, s.ID, e.Dst)
-				log.Printf("[orchestrator] [FSM] %s : %s ➜ %s  (by %s)", s.ID, e.Src, e.Dst, e.Event)
+				log.Printf("[orchestrator] [FSM] %s : %s -> %s  (by %s)", s.ID, e.Src, e.Dst, e.Event)
 			},
 		},
 	)
@@ -98,7 +98,6 @@ func (s *Scenario) cbBeforeCompleteStartup(ctx context.Context, e *fsm.Event) {
 		log.Printf("[orchestrator] [%s] heartbeat not received, triggering shutdown", s.ID)
 
 		if s.FSM.Current() == StInStartupProcessing {
-			// Только если ещё не ушли из состояния
 			e.Cancel(nil)
 
 			go func() {
