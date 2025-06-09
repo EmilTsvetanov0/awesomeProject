@@ -30,7 +30,33 @@ func New(port string, rp *runners.ScenarioPool) *Server {
 func (s *Server) newApi() *gin.Engine {
 	g := gin.New()
 	g.POST("/ping", s.pingRunnerHandler)
+	g.POST("/term", s.terminateRunnerHandler)
 	return g
+}
+
+func (s *Server) terminateRunnerHandler(ctx *gin.Context) {
+	var req domain.RunnerTermReq
+	if err := ctx.ShouldBindJSON(&req); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"code": 400, "error": "bad request"})
+		return
+	}
+
+	if s.runnerPool == nil {
+		log.Println("[orchestrator] runnerPool is nil")
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "runnerPool is nil"})
+		return
+	}
+
+	log.Printf("[orchestrator] Stopping runner %s because of the error: %v", req.Id, req.Error)
+
+	if err := s.runnerPool.StopScenario(ctx.Request.Context(), req.Id); err != nil {
+		log.Printf("[orchestrator] Error terminating runner %s: %v", req.Id, err)
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	log.Println("[orchestrator] Runner stopped successfully")
+
+	ctx.JSON(http.StatusOK, gin.H{"code": 200, "message": "ok"})
 }
 
 func (s *Server) pingRunnerHandler(ctx *gin.Context) {

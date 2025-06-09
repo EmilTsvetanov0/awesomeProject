@@ -31,5 +31,6 @@ type LoggableKafkaEvent struct {
 type Prediction struct {
 	ScenarioId string    `json:"scenario_id"`
 	Class      string    `json:"class"`
+	Confidence float64   `json:"confidence"`
 	CreatedAt  time.Time `json:"created_at"`
 }

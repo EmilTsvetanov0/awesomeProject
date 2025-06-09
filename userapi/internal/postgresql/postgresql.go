@@ -39,7 +39,7 @@ func (r *PgClient) GetScenarioStatus(ctx context.Context, id string) (string, er
 
 func (r *PgClient) GetPredictions(ctx context.Context, scenario_id string) ([]domain.Prediction, error) {
 	query := `
-		SELECT scenario_id, class, created_at
+		SELECT scenario_id, class, confidence, created_at
 		FROM images
 		WHERE scenario_id = $1
 		ORDER BY created_at DESC
@@ -58,7 +58,7 @@ func (r *PgClient) GetPredictions(ctx context.Context, scenario_id string) ([]do
 	for rows.Next() {
 		var prediction domain.Prediction
 
-		if err = rows.Scan(&prediction.ScenarioId, &prediction.Class, &prediction.CreatedAt); err != nil {
+		if err = rows.Scan(&prediction.ScenarioId, &prediction.Class, &prediction.Confidence, &prediction.CreatedAt); err != nil {
 			return nil, fmt.Errorf("get predictions: %w", err)
 		}
 
@@ -80,8 +80,9 @@ func (r *PgClient) ApplyKafkaEvent(ctx context.Context, evt domain.KafkaEvent) e
 		switch evt.EventType {
 		case "created":
 			var data struct {
-				ScenarioId string `json:"scenario_id"`
-				Class      string `json:"class"`
+				ScenarioId string  `json:"scenario_id"`
+				Class      string  `json:"class"`
+				Confidence float64 `json:"confidence"`
 			}
 			if err := json.Unmarshal(evt.Payload, &data); err != nil {
 				return fmt.Errorf("unmarshal image.created: %w", err)
@@ -89,11 +90,12 @@ func (r *PgClient) ApplyKafkaEvent(ctx context.Context, evt domain.KafkaEvent) e
 
 			_, err := r.client.Exec(ctx,
 				`
-					INSERT INTO images (scenario_id, class)
-					VALUES ($1, $2)
+					INSERT INTO images (scenario_id, class, confidence)
+					VALUES ($1, $2, $3)
 					`,
 				data.ScenarioId,
 				data.Class,
+				data.Confidence,
 			)
 			return err
 		}

@@ -76,13 +76,6 @@ type runnerGroupHandler struct {
 	runnerPool RunnerPool
 }
 
-// TODO: Mock, need to replace this with maybe database records
-var availablePaths = map[string]bool{
-	"first":  true,
-	"second": true,
-	"krol":   true,
-}
-
 func (h *runnerGroupHandler) Setup(_ sarama.ConsumerGroupSession) error   { return nil }
 func (h *runnerGroupHandler) Cleanup(_ sarama.ConsumerGroupSession) error { return nil }
 
@@ -94,15 +87,6 @@ func (h *runnerGroupHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, clai
 			continue
 		}
 
-		if active, ok := availablePaths[runnerMsg.Id]; !(active && ok) {
-			if !ok {
-				log.Printf("Runner %s is not found in available paths", runnerMsg.Id)
-			} else {
-				log.Printf("Runner %s is not active", runnerMsg.Id)
-			}
-			continue
-		}
-
 		log.Printf("Message: %+v", runnerMsg)
 		switch runnerMsg.Action {
 		case "start":
@@ -111,7 +95,6 @@ func (h *runnerGroupHandler) ConsumeClaim(sess sarama.ConsumerGroupSession, clai
 			h.runnerPool.Stop(runnerMsg.Id)
 		}
 
-		// отмечаем сообщение как обработанное
 		sess.MarkMessage(msg, "")
 	}
 	return nil
@@ -176,7 +159,7 @@ func handleAsyncProducerEvents() {
 			if err != nil {
 				log.Printf("Error decoding message value: %v", err)
 			} else {
-				log.Printf("[producer] Topic: %s, Msg: %s", msg.Topic, string(bytes))
+				log.Printf("[producer] Topic: %s, Msg: %s", msg.Topic, string(bytes)[:50])
 			}
 		}
 	}

@@ -8,4 +8,5 @@ kafka:
 runner:
   heartbeat_interval: 3
   heartbeat_url: orchestrator:8080/ping
+  terminate_url: orchestrator:8080/term
   heartbeat_tries: 5

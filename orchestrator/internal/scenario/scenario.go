@@ -8,8 +8,6 @@ import (
 	"time"
 )
 
-/* ---------- 1. Константы состояний и событий ---------- */
-
 const (
 	StInitStartup          = "init_startup"
 	StInStartupProcessing  = "in_startup_processing"
@@ -18,12 +16,9 @@ const (
 	StInShutdownProcessing = "in_shutdown_processing"
 	StInactive             = "inactive"
 
-	// how long мы ждём heartbeat прежде, чем считать runner «упавшим»
 	HeartbeatTTL = 5 * time.Second
-	MaxHBRetries = 3 // N попыток «достучаться» до runner‑а
+	MaxHBRetries = 3
 )
-
-/* ---------- 2. Тип Scenario ---------- */
 
 type RunnerService interface {
 	StartRunner(id string)
@@ -33,13 +28,11 @@ type RunnerService interface {
 type Scenario struct {
 	ID       string
 	FSM      *fsm.FSM
-	hbMu     sync.Mutex // защита lastHB
-	lastHB   time.Time  // время последнего heartbeat
+	hbMu     sync.Mutex
+	lastHB   time.Time
 	cancelHB context.CancelFunc
 	rs       RunnerService
 }
-
-/* ---------- 3. Конструктор ---------- */
 
 func NewScenario(id string, enterState func(ctx context.Context, id string, dst string), runnerService RunnerService) *Scenario {
 	s := &Scenario{ID: id, rs: runnerService}
@@ -66,8 +59,7 @@ func NewScenario(id string, enterState func(ctx context.Context, id string, dst 
 
 			// ---- для логов и сохранения состояния
 			"enter_state": func(ctx context.Context, e *fsm.Event) {
-				//kafka.ChangeState(s.ID, e.Dst)
-				enterState(ctx, s.ID, e.Dst) //Фиксируем изменение в постгресе
+				enterState(ctx, s.ID, e.Dst)
 				log.Printf("[orchestrator] [FSM] %s : %s ➜ %s  (by %s)", s.ID, e.Src, e.Dst, e.Event)
 			},
 		},
@@ -75,7 +67,7 @@ func NewScenario(id string, enterState func(ctx context.Context, id string, dst 
 	return s
 }
 
-/* ---------- 4. Колбеки FSM ---------- */
+// Колбеки FSM
 
 func (s *Scenario) cbEnterStartupProcessing(ctx context.Context, e *fsm.Event) {
 	log.Printf("[orchestrator] [%s] entering startup processing, current state: %s",
@@ -119,8 +111,7 @@ func (s *Scenario) cbEnterInitShutdown(ctx context.Context, e *fsm.Event) {
 	log.Printf("[orchestrator] [%s] initiating shutdown, current state: %s",
 		s.ID, s.FSM.Current())
 	s.rs.StopRunner(s.ID)
-	// → _sendStopCommand()_
-	// останавливаем watchdog
+
 	s.stopWatchdog()
 	go func() {
 		time.Sleep(100 * time.Millisecond)
@@ -131,7 +122,7 @@ func (s *Scenario) cbEnterInitShutdown(ctx context.Context, e *fsm.Event) {
 }
 
 func (s *Scenario) cbEnterInShutdownProcessing(ctx context.Context, e *fsm.Event) {
-	log.Printf("[orchestrator] [%s] shutdown processing done, marking inactive…", s.ID)
+	log.Printf("[orchestrator] [%s] shutdown processing done, marking inactive...", s.ID)
 
 	time.Sleep(1 * time.Second)
 
@@ -149,16 +140,15 @@ func (s *Scenario) cbEnterInactive(ctx context.Context, e *fsm.Event) {
 	s.stopWatchdog()
 }
 
-/* ---------- 5. Heartbeat‑API для Runner‑а ---------- */
+// Heartbeats
 
-// Runner присылает heartbeat → orchestrator вызывает этот метод.
 func (s *Scenario) AcceptHeartbeat() {
 	s.hbMu.Lock()
 	s.lastHB = time.Now()
 	s.hbMu.Unlock()
 }
 
-/* ---------- 6. Внутренняя логика ---------- */
+// Внутренняя логика
 
 func (s *Scenario) Reset() {
 	s.hbMu.Lock()

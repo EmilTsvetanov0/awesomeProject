@@ -1,4 +1,4 @@
-FROM golang:1.24
+FROM gocv/opencv:latest
 
 WORKDIR ${GOPATH}/awesomeProject/
 COPY . ${GOPATH}/awesomeProject/

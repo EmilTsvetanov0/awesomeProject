@@ -1,9 +1,12 @@
 import asyncio
 import multiprocessing as mp
+import numpy as np
+import base64
 import yaml
 import asyncpg
 import json
 import logging
+import cv2
 import os
 from confluent_kafka import Consumer
 from concurrent.futures import ThreadPoolExecutor
@@ -23,6 +26,43 @@ def load_config(path="config.yaml"):
         logger.exception(f"Failed to load config: {str(e)}")
         raise
 
+
+def load_model():
+    with open('./model/classification_classes_ILSVRC2012.txt', 'r') as f:
+        classes = [line.strip().split(' ', 1)[1] if len(line.strip().split(' ', 1)) > 1 else '' for line in f]
+
+    net = cv2.dnn.readNet(
+        './model/mobilenet_deploy.prototxt',
+        './model/mobilenet.caffemodel'
+    )
+    return net, classes
+
+
+def real_model_inference(frame_bytes, net, classes):
+    nparr = np.frombuffer(frame_bytes, np.uint8)
+    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    if img is None:
+        logger.error(f"cv2.imdecode failed for scenario")
+
+    blob = cv2.dnn.blobFromImage(
+        img,
+        0.017,
+        (224, 224),
+        (103.94, 116.78, 123.68),
+        swapRB=False
+    )
+
+    net.setInput(blob)
+    preds = net.forward()
+
+    class_id = np.argmax(preds)
+    confidence = preds[0][class_id]
+
+    return {
+        "class": classes[class_id],
+        "confidence": float(confidence)
+    }
+
 def mock_model_inference(frame_bytes):
     import time
     time.sleep(0.1)
@@ -33,6 +73,8 @@ def mock_model_inference(frame_bytes):
 def inference_worker(input_queue, output_queue):
     logger.info("[Inference] Started")
     try:
+        net, classes = load_model()
+        logger.info(f"Model loaded, {len(classes)} classes available")
         while True:
             frame_obj = input_queue.get()
             if frame_obj is None:
@@ -41,9 +83,22 @@ def inference_worker(input_queue, output_queue):
 
             scenario_id = frame_obj['scenario_id']
             frame_bytes = frame_obj['frame_bytes']
-            result = mock_model_inference(frame_bytes)
-            result['scenario_id'] = scenario_id
-            output_queue.put(result)
+            try:
+                result = real_model_inference(frame_bytes, net, classes)
+                result['scenario_id'] = scenario_id
+                output_queue.put(result)
+
+                logger.debug(f"Inference result: {result['class']} ({result['confidence']:.2f})")
+            except Exception as e:
+                logger.error(f"Inference error: {str(e)}")
+                output_queue.put({
+                    "class": "error",
+                    "confidence": 0.0,
+                    "scenario_id": scenario_id
+                })
+            # result = mock_model_inference(frame_bytes)
+            # result['scenario_id'] = scenario_id
+            # output_queue.put(result)
     except KeyboardInterrupt:
         pass
 
@@ -72,7 +127,7 @@ async def consume_kafka(input_queue, kafka_conf, executor):
             try:
                 message = json.loads(msg.value().decode('utf-8'))
                 scenario_id = message.get('scenario_id', 'unknown')
-                frame_data = message['data'].encode('latin1')
+                frame_data = base64.b64decode(message['data'])
                 frame_obj = {'scenario_id': scenario_id, 'frame_bytes': frame_data}
 
                 await loop.run_in_executor(executor, input_queue.put, frame_obj)
@@ -120,14 +175,16 @@ async def process_single_record(pool, result):
         async with conn.transaction():
             scenario_id = result.get('scenario_id', 'unknown')
             image_id = await conn.fetchval(
-                "INSERT INTO images(scenario_id, class) VALUES($1, $2) RETURNING id",
+                "INSERT INTO images(scenario_id, class, confidence) VALUES($1, $2, $3) RETURNING id",
                 scenario_id,
-                result.get("class", "noclass")
+                result.get("class", "noclass"),
+                result.get("confidence", 0.0)
             )
 
             payload = json.dumps({
                 "scenario_id": scenario_id,
                 "class": result.get("class", "noclass"),
+                "confidence": result.get("confidence", 0.0)
             })
 
             await conn.execute(
@@ -138,7 +195,7 @@ async def process_single_record(pool, result):
                 payload
             )
 
-            logger.info(f"Inserted record for image ID: {image_id}")
+            logger.info(f"Inserted classification: {result['class']} ({result['confidence']:.2f}) for image ID: {image_id}")
 
 async def main():
     logger.info("Starting inference service")
@@ -152,7 +209,7 @@ async def main():
 
         kafka_config = {
             'bootstrap_servers': ','.join(config['kafka']['brokers']),
-            'group_id': config['kafka'].get('group_id', 'video-group'),
+            'group_id': config['kafka'].get('group_id', 'videos'),
             'topic': config['kafka'].get('topic', 'videos')
         }
 

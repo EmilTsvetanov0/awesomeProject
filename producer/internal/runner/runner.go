@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/spf13/viper"
+	"gocv.io/x/gocv"
 	"log"
 	"net/http"
 	"producer/internal/cconfig"
@@ -17,13 +18,17 @@ import (
 
 var hbInterval = 3 * time.Second
 var heartbeatURL = "http://localhost:8080/ping"
+var terminateURL = "http://localhost:8080/term"
 var hbTries = 5
+
+const videoFolder = "./files/"
 
 func init() {
 	cconfig.InitConfig()
 
 	hbInterval = time.Duration(viper.GetInt("runner.heartbeat_interval")) * time.Second
 	heartbeatURL = "http://" + viper.GetString("runner.heartbeat_url")
+	terminateURL = "http://" + viper.GetString("runner.terminate_url")
 	hbTries = viper.GetInt("runner.heartbeat_tries")
 }
 
@@ -104,24 +109,53 @@ func (r *Runner) Start(ctx context.Context) bool {
 		}
 	}(r.jobName)
 
-	// Здесь отправляем кадры (пока симуляция)
-	// TODO: Подключить обработку кадров из видоса
 	go func(job string) {
+		video, err := gocv.VideoCaptureFile(videoFolder + job + ".mp4")
+		if err != nil {
+			log.Println("[producer] [Runner.Start] VideoCaptureFile error:", err)
+			NotifyAboutStopping(job, err)
+			r.Stop()
+			return
+		}
+		defer video.Close()
+
+		img := gocv.NewMat()
+		defer img.Close()
+
 		ticker := time.NewTicker(3 * time.Second)
-		i := 0
+
 		for {
 			select {
 			case <-r.exit:
 				return
 			case <-ticker.C:
-				i++
-				//msg, err := json.Marshal(kafka.Notification{
-				//	Title:     "message number " + strconv.Itoa(i) + " for job " + job,
-				//	Timestamp: time.Now().Unix(),
-				//})
+
+				if !video.Read(&img) || img.Empty() {
+					video.Close()
+					video, err = gocv.VideoCaptureFile(job + ".mp4")
+					if err != nil {
+						log.Println("[producer] [Runner.Start] VideoCaptureFile error:", err)
+						NotifyAboutStopping(job, err)
+						r.Stop()
+						return
+					}
+					continue
+				}
+
+				//frameData := img.ToBytes()
+
+				buf, err := gocv.IMEncode(".jpg", img)
+				if err != nil {
+					log.Printf("failed to encode image: %v", err)
+					r.Stop()
+					return
+				}
+				frameData := buf.GetBytes()
+				buf.Close()
+
 				msg, err := json.Marshal(domain.VideoFrame{
 					ScenarioId: r.jobName,
-					Data:       []byte{},
+					Data:       frameData,
 				})
 				if err != nil {
 					log.Print("Unmarshalling error: ", err)
@@ -191,5 +225,25 @@ func (p *Pool) Stop(id string) {
 		log.Println("[producer] Runner " + id + " already stopped")
 	} else {
 		log.Println("[producer] Runner " + id + " stopped")
+	}
+}
+
+func NotifyAboutStopping(job string, err error) {
+	log.Println("[producer] [NotifyAboutStopping]", err)
+	payload := []byte(`{"id":"` + job + `","timestamp":` + strconv.FormatInt(time.Now().Unix(), 10) + `, "error":"` + err.Error() + `"}`)
+
+	resp, err := http.Post(terminateURL, "application/json", bytes.NewBuffer(payload))
+	log.Printf("[producer] [NotifyAboutStopping] response code: %d", resp.StatusCode)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		if err != nil {
+			log.Println("Notification send error:", err)
+		} else {
+			log.Println("Notification send error: status code:", resp.StatusCode)
+		}
+	}
+	err = resp.Body.Close()
+	if err != nil {
+		log.Printf("[producer] [NotifyAboutStopping] Close body response error: %s", err)
+		return
 	}
 }

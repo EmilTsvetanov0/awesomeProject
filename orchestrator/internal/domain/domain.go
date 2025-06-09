@@ -17,6 +17,12 @@ type RunnerHb struct {
 	Timestamp int64  `json:"timestamp"`
 }
 
+type RunnerTermReq struct {
+	Id        string `json:"id"`
+	Timestamp int64  `json:"timestamp"`
+	Error     string `json:"error"`
+}
+
 type KafkaEvent struct {
 	AggregateType string          `json:"aggregate_type"`
 	AggregateID   string          `json:"aggregate_id"`

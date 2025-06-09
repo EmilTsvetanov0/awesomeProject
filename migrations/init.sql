@@ -20,5 +20,6 @@ CREATE TABLE IF NOT EXISTS images (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     scenario_id TEXT NOT NULL DEFAULT 'unknown',
     class TEXT NOT NULL DEFAULT 'noclass',
+    confidence NUMERIC(2,2) NOT NULL DEFAULT 0.0,
     created_at TIMESTAMP NOT NULL DEFAULT now()
 )
