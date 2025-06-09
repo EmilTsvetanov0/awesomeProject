@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"github.com/IBM/sarama"
 	"github.com/spf13/viper"
+	"hash/fnv"
 	"log"
+	"math/rand"
 	"orchestrator/internal/cconfig"
 	"orchestrator/internal/domain"
 	"os"
@@ -50,6 +52,7 @@ func init() {
 	defer tmpClient.Close()
 
 	runnersTopicPartitions, err = tmpClient.Partitions(runnersTopic)
+	log.Printf("RunnerTopicPartitions: %v", runnersTopicPartitions)
 
 }
 
@@ -152,9 +155,38 @@ type Producer struct {
 	producer sarama.AsyncProducer
 }
 
+func NewCustomPartitioner(topic string) sarama.Partitioner {
+	return &customPartitioner{}
+}
+
+type customPartitioner struct{}
+
+func (p *customPartitioner) Partition(msg *sarama.ProducerMessage, numPartitions int32) (int32, error) {
+	if msg.Partition >= 0 {
+		return msg.Partition % numPartitions, nil
+	}
+	if msg.Key == nil {
+		return rand.Int31n(numPartitions), nil
+	}
+
+	hasher := fnv.New32a()
+	keyBytes, err := msg.Key.Encode()
+	if err != nil {
+		return rand.Int31n(numPartitions), nil
+	}
+	_, _ = hasher.Write(keyBytes)
+
+	partition := int32(hasher.Sum32() % uint32(numPartitions))
+	return partition, nil
+}
+
+func (p *customPartitioner) RequiresConsistency() bool {
+	return true
+}
+
 func NewKafkaProducer() (*Producer, error) {
 	config := sarama.NewConfig()
-	config.Producer.Partitioner = sarama.NewManualPartitioner
+	config.Producer.Partitioner = NewCustomPartitioner
 	config.Producer.RequiredAcks = sarama.WaitForLocal
 	config.Producer.Return.Successes = true
 	config.Producer.Return.Errors = true
@@ -207,9 +239,10 @@ func (p *Producer) PushMessageToQueueKey(topic string, key sarama.Encoder, messa
 	}
 
 	msg := &sarama.ProducerMessage{
-		Topic: topic,
-		Value: sarama.ByteEncoder(message),
-		Key:   key,
+		Topic:     topic,
+		Value:     sarama.ByteEncoder(message),
+		Key:       key,
+		Partition: -1,
 	}
 
 	p.producer.Input() <- msg
